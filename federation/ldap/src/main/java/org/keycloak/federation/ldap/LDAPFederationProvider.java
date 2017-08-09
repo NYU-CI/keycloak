@@ -47,6 +47,8 @@ import org.keycloak.models.UserFederationMapperModel;
 import org.keycloak.models.UserFederationProvider;
 import org.keycloak.models.UserFederationProviderModel;
 import org.keycloak.models.UserModel;
+import org.keycloak.policy.PasswordPolicyManagerProvider;
+import org.keycloak.policy.PolicyError;
 import org.keycloak.services.managers.UserManager;
 
 import javax.naming.AuthenticationException;
@@ -409,6 +411,10 @@ public class LDAPFederationProvider implements UserFederationProvider {
         } else if (editMode == EditMode.WRITABLE) {
             LDAPIdentityStore ldapIdentityStore = getLdapIdentityStore();
             UserCredentialModel cred = (UserCredentialModel)input;
+
+            PolicyError error = session.getProvider(PasswordPolicyManagerProvider.class).validate(realm, user, cred.getValue());
+            if (error != null) throw new ModelException(error.getMessage(), error.getParameters());
+
             String password = cred.getValue();
             LDAPObject ldapUser = loadAndValidateUser(realm, user);
             ldapIdentityStore.updatePassword(ldapUser, password);

@@ -9,6 +9,17 @@
             <input type="text" readonly value="this is not a login form" style="display: none;">
             <input type="password" readonly value="this is not a login form" style="display: none;">
 
+            <#if isLdapUser>
+            <div class="${properties.kcFormGroupClass!}">
+                <div class="${properties.kcLabelWrapperClass!}">
+                    <label for="password" class="${properties.kcLabelClass!}">${msg("password")}</label>
+                </div>
+                <div class="${properties.kcInputWrapperClass!}">
+                    <input type="password" id="password" name="password" class="${properties.kcInputClass!}" autofocus autocomplete="off" />
+                </div>
+            </div>
+            </#if>
+
             <div class="${properties.kcFormGroupClass!}">
                 <div class="${properties.kcLabelWrapperClass!}">
                     <label for="password-new" class="${properties.kcLabelClass!}">${msg("passwordNew")}</label>

@@ -38,15 +38,7 @@ import org.keycloak.forms.login.freemarker.model.RegisterBean;
 import org.keycloak.forms.login.freemarker.model.RequiredActionUrlFormatterMethod;
 import org.keycloak.forms.login.freemarker.model.TotpBean;
 import org.keycloak.forms.login.freemarker.model.UrlBean;
-import org.keycloak.models.ClientModel;
-import org.keycloak.models.ClientSessionModel;
-import org.keycloak.models.Constants;
-import org.keycloak.models.IdentityProviderModel;
-import org.keycloak.models.KeycloakSession;
-import org.keycloak.models.ProtocolMapperModel;
-import org.keycloak.models.RealmModel;
-import org.keycloak.models.RoleModel;
-import org.keycloak.models.UserModel;
+import org.keycloak.models.*;
 import org.keycloak.models.utils.FormMessage;
 import org.keycloak.services.Urls;
 import org.keycloak.services.messages.Messages;
@@ -303,6 +295,17 @@ public class FreeMarkerLoginFormsProvider implements LoginFormsProvider {
                 break;
             case CODE:
                 attributes.put(OAuth2Constants.CODE, new CodeBean(accessCode, messageType == MessageType.ERROR ? getFirstMessageUnformatted() : null));
+                break;
+            case LOGIN_UPDATE_PASSWORD:
+                Boolean isLdapUser = Boolean.FALSE;
+                if (user.getFederationLink() != null) {
+                    for(UserFederationProviderModel provider : realm.getUserFederationProviders()) {
+                        if(user.getFederationLink().equals(provider.getId()) && LDAPConstants.LDAP_PROVIDER.equals(provider.getProviderName())) {
+                            isLdapUser = Boolean.TRUE;
+                        }
+                    }
+                }
+                attributes.put("isLdapUser", isLdapUser);
                 break;
         }
 

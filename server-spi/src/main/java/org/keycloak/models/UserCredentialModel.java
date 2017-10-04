@@ -39,6 +39,7 @@ public class UserCredentialModel implements CredentialInput {
     public static final String KERBEROS = CredentialModel.KERBEROS;
 
     protected String type;
+    protected String oldValue;
     protected String value;
     protected String device;
     protected String algorithm;
@@ -52,6 +53,15 @@ public class UserCredentialModel implements CredentialInput {
         model.setValue(password);
         return model;
     }
+
+    public static UserCredentialModel password(String oldPassword, String newPassword) {
+        UserCredentialModel model = new UserCredentialModel();
+        model.setType(PASSWORD);
+        model.setValue(newPassword);
+        model.setOldValue(oldPassword);
+        return model;
+    }
+
     public static UserCredentialModel passwordToken(String passwordToken) {
         UserCredentialModel model = new UserCredentialModel();
         model.setType(PASSWORD_TOKEN);
@@ -119,6 +129,14 @@ public class UserCredentialModel implements CredentialInput {
 
     public void setValue(String value) {
         this.value = value;
+    }
+
+    public String getOldValue() {
+        return oldValue;
+    }
+
+    public void setOldValue(String value) {
+        this.oldValue = value;
     }
 
     public String getDevice() {

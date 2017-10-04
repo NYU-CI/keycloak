@@ -81,6 +81,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * @author <a href="mailto:sthorger@redhat.com">Stian Thorgersen</a>
@@ -638,7 +640,7 @@ public class AccountService extends AbstractSecuredLocalService {
         }
 
         try {
-            session.userCredentialManager().updateCredential(realm, user, UserCredentialModel.password(passwordNew));
+            session.userCredentialManager().updateCredential(realm, user, UserCredentialModel.password(password, passwordNew));
         } catch (ModelReadOnlyException mre) {
             setReferrerOnPage();
             errorEvent.error(Errors.NOT_ALLOWED);
@@ -646,8 +648,23 @@ public class AccountService extends AbstractSecuredLocalService {
         } catch (ModelException me) {
             ServicesLogger.LOGGER.failedToUpdatePassword(me);
             setReferrerOnPage();
-            errorEvent.detail(Details.REASON, me.getMessage()).error(Errors.PASSWORD_REJECTED);
-            return account.setError(me.getMessage(), me.getParameters()).createResponse(AccountPages.PASSWORD);
+            if (me.getCause() != null && me.getCause().getMessage() != null) {
+                Pattern pattern = Pattern.compile("\\[LDAP: error code 19 - (.*?)\\]");
+                Matcher matcher = pattern.matcher(me.getCause().getMessage());
+                if (matcher.find()) {;
+                    String message = matcher.group(1);
+                    errorEvent.detail(Details.REASON, message).error(Errors.PASSWORD_REJECTED);
+                    return account.setError(message, me.getParameters()).createResponse(AccountPages.PASSWORD);
+                } else {
+                    errorEvent.detail(Details.REASON, me.getMessage()).error(Errors.PASSWORD_REJECTED);
+                    return account.setError(me.getMessage(), me.getParameters()).createResponse(AccountPages.PASSWORD);
+                }
+            } else {
+                errorEvent.detail(Details.REASON, me.getMessage()).error(Errors.PASSWORD_REJECTED);
+                return account.setError(me.getMessage(), me.getParameters()).createResponse(AccountPages.PASSWORD);
+            }
+
+
         } catch (Exception ape) {
             ServicesLogger.LOGGER.failedToUpdatePassword(ape);
             setReferrerOnPage();

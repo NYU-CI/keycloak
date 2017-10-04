@@ -93,7 +93,7 @@ public class LDAPOperationManager {
      * @param dn
      * @param attributes
      */
-    public void modifyAttributes(String dn,  NamingEnumeration<Attribute> attributes) {
+    public void modifyAttributes(String dn, NamingEnumeration<Attribute> attributes) {
         try {
             List<ModificationItem> modItems = new ArrayList<ModificationItem>();
             while (attributes.hasMore()) {
@@ -102,6 +102,22 @@ public class LDAPOperationManager {
             }
 
             modifyAttributes(dn, modItems.toArray(new ModificationItem[] {}));
+        } catch (NamingException ne) {
+            throw new ModelException("Could not modify attributes on entry from DN [" + dn + "]", ne);
+        }
+
+    }
+
+
+    public void modifyAttributesAsUser(String dn,  String password, NamingEnumeration<Attribute> attributes) {
+        try {
+            List<ModificationItem> modItems = new ArrayList<ModificationItem>();
+            while (attributes.hasMore()) {
+                ModificationItem modItem = new ModificationItem(DirContext.REPLACE_ATTRIBUTE, attributes.next());
+                modItems.add(modItem);
+            }
+
+            modifyAttributesAsUser(dn, password, modItems.toArray(new ModificationItem[] {}));
         } catch (NamingException ne) {
             throw new ModelException("Could not modify attributes on entry from DN [" + dn + "]", ne);
         }
@@ -411,6 +427,38 @@ public class LDAPOperationManager {
         }
     }
 
+    public void modifyAttributesAsUser(final String dn, String password, final ModificationItem[] mods) {
+        try {
+            if (logger.isTraceEnabled()) {
+                logger.tracef("Modifying attributes for entry [%s]: [", dn);
+
+                for (ModificationItem item : mods) {
+                    Object values;
+
+                    if (item.getAttribute().size() > 0) {
+                        values = item.getAttribute().get();
+                    } else {
+                        values = "No values";
+                    }
+
+                    logger.tracef("  Op [%s]: %s = %s", item.getModificationOp(), item.getAttribute().getID(), values);
+                }
+
+                logger.tracef("]");
+            }
+
+            executeForUser(dn, password, new LdapOperation<Void>() {
+                @Override
+                public Void execute(LdapContext context) throws NamingException {
+                    context.modifyAttributes(dn, mods);
+                    return null;
+                }
+            });
+        } catch (NamingException e) {
+            throw new ModelException("Could not modify attribute for DN [" + dn + "]", e);
+        }
+    }
+
     public void createSubContext(final String name, final Attributes attributes) {
         try {
             if (logger.isTraceEnabled()) {
@@ -527,11 +575,77 @@ public class LDAPOperationManager {
         return env;
     }
 
+    private Map<String, Object> createConnectionPropertiesForUser(String userDn, String userPassword) {
+        HashMap<String, Object> env = new HashMap<String, Object>();
+
+        String authType = this.config.getAuthType();
+        env.put(Context.INITIAL_CONTEXT_FACTORY, this.config.getFactoryName());
+        env.put(Context.SECURITY_AUTHENTICATION, authType);
+
+
+        env.put(Context.SECURITY_PRINCIPAL, userDn);
+        env.put(Context.SECURITY_CREDENTIALS, userPassword);
+
+
+        String url = this.config.getConnectionUrl();
+
+        if (url != null) {
+            env.put(Context.PROVIDER_URL, url);
+        } else {
+            logger.warn("LDAP URL is null. LDAPOperationManager won't work correctly");
+        }
+
+        String useTruststoreSpi = this.config.getUseTruststoreSpi();
+        LDAPConstants.setTruststoreSpiIfNeeded(useTruststoreSpi, url, env);
+
+        String connectionPooling = this.config.getConnectionPooling();
+        if (connectionPooling != null) {
+            env.put("com.sun.jndi.ldap.connect.pool", connectionPooling);
+        }
+
+        // Just dump the additional properties
+        Properties additionalProperties = this.config.getAdditionalConnectionProperties();
+        if (additionalProperties != null) {
+            for (Object key : additionalProperties.keySet()) {
+                env.put(key.toString(), additionalProperties.getProperty(key.toString()));
+            }
+        }
+
+        if (config.isActiveDirectory()) {
+            env.put("java.naming.ldap.attributes.binary", LDAPConstants.OBJECT_GUID);
+        }
+
+        if (logger.isDebugEnabled()) {
+            logger.debugf("Creating LdapContext using properties: [%s]", env);
+        }
+
+        return env;
+    }
+
     private <R> R execute(LdapOperation<R> operation) throws NamingException {
         LdapContext context = null;
 
         try {
             context = createLdapContext();
+            return operation.execute(context);
+        } catch (NamingException ne) {
+            throw ne;
+        } finally {
+            if (context != null) {
+                try {
+                    context.close();
+                } catch (NamingException ne) {
+                    logger.error("Could not close Ldap context.", ne);
+                }
+            }
+        }
+    }
+
+    private <R> R executeForUser(String userDn, String userPassword, LdapOperation<R> operation) throws NamingException {
+        LdapContext context = null;
+
+        try {
+            context = new InitialLdapContext(new Hashtable<Object, Object>(createConnectionPropertiesForUser(userDn, userPassword)), null);
             return operation.execute(context);
         } catch (NamingException ne) {
             throw ne;

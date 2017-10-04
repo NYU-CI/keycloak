@@ -211,6 +211,7 @@ public class LDAPIdentityStore implements IdentityStore {
         if (getConfig().isActiveDirectory()) {
             updateADPassword(userDN, password);
         } else {
+
             ModificationItem[] mods = new ModificationItem[1];
 
             try {
@@ -227,6 +228,36 @@ public class LDAPIdentityStore implements IdentityStore {
         }
     }
 
+    public void updatePasswordAsUser(LDAPObject user, String oldPassword, String newPassword) {
+        String userDN = user.getDn().toString();
+
+        if (logger.isDebugEnabled()) {
+            logger.debugf("Using DN [%s] for updating LDAP password of user", userDN);
+        }
+
+        if (getConfig().isActiveDirectory()) {
+            updateADPassword(userDN, newPassword);
+        } else {
+
+
+            ModificationItem[] mods = new ModificationItem[2];
+
+            try {
+                Attribute mod0 = new BasicAttribute("userPassword", oldPassword );
+                Attribute mod1 = new BasicAttribute("userPassword", newPassword);
+
+                //mods[0] = new ModificationItem(DirContext.REPLACE_ATTRIBUTE, mod0);
+                mods[0] = new ModificationItem(DirContext.REMOVE_ATTRIBUTE, mod0);
+                mods[1] = new ModificationItem(DirContext.ADD_ATTRIBUTE, mod1);
+
+                operationManager.modifyAttributesAsUser(userDN, oldPassword, mods);
+            } catch (ModelException me) {
+                throw me;
+            } catch (Exception e) {
+                throw new ModelException("Error updating password.", e);
+            }
+        }
+    }
 
     private void updateADPassword(String userDN, String password) {
         try {

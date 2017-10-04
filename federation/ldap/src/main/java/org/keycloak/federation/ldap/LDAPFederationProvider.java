@@ -417,7 +417,11 @@ public class LDAPFederationProvider implements UserFederationProvider {
 
             String password = cred.getValue();
             LDAPObject ldapUser = loadAndValidateUser(realm, user);
-            ldapIdentityStore.updatePassword(ldapUser, password);
+            if (cred.getOldValue() != null) {
+                ldapIdentityStore.updatePasswordAsUser(ldapUser, cred.getOldValue(), password);
+            } else {
+                ldapIdentityStore.updatePassword(ldapUser, password);
+            }
             if (updater != null) updater.passwordUpdated(user, ldapUser, input);
             return true;
         } else {

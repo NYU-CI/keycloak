@@ -31,17 +31,16 @@ import org.keycloak.events.Details;
 import org.keycloak.events.Errors;
 import org.keycloak.events.EventBuilder;
 import org.keycloak.events.EventType;
-import org.keycloak.models.KeycloakSession;
-import org.keycloak.models.KeycloakSessionFactory;
-import org.keycloak.models.ModelException;
-import org.keycloak.models.UserCredentialModel;
-import org.keycloak.models.UserModel;
+import org.keycloak.models.*;
 import org.keycloak.services.messages.Messages;
+import org.keycloak.services.resources.AccountService;
 import org.keycloak.services.validation.Validation;
 
 import javax.ws.rs.core.MultivaluedMap;
 import javax.ws.rs.core.Response;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * @author <a href="mailto:bill@burkecentral.com">Bill Burke</a>
@@ -84,12 +83,44 @@ public class UpdatePassword implements RequiredActionProvider, RequiredActionFac
         EventBuilder event = context.getEvent();
         MultivaluedMap<String, String> formData = context.getHttpRequest().getDecodedFormParameters();
         event.event(EventType.UPDATE_PASSWORD);
+        String password = formData.getFirst("password");
         String passwordNew = formData.getFirst("password-new");
         String passwordConfirm = formData.getFirst("password-confirm");
 
         EventBuilder errorEvent = event.clone().event(EventType.UPDATE_PASSWORD_ERROR)
                 .client(context.getClientSession().getClient())
                 .user(context.getClientSession().getUserSession().getUser());
+
+        boolean requireCurrent = AccountService.isPasswordSet(context.getSession(), context.getRealm(), context.getUser());
+        Boolean isLdapUser = Boolean.FALSE;
+        if (context.getUser().getFederationLink() != null) {
+            for(UserFederationProviderModel provider : context.getRealm().getUserFederationProviders()) {
+                if(context.getUser().getFederationLink().equals(provider.getId()) && LDAPConstants.LDAP_PROVIDER.equals(provider.getProviderName())) {
+                    isLdapUser = Boolean.TRUE;
+                }
+            }
+        }
+
+        if (isLdapUser && requireCurrent) {
+            if (Validation.isBlank(password)) {
+                Response challenge = context.form()
+                        .setError(Messages.MISSING_PASSWORD)
+                        .createResponse(UserModel.RequiredAction.UPDATE_PASSWORD);
+                context.challenge(challenge);
+                errorEvent.error(Errors.PASSWORD_MISSING);
+                return;
+            }
+
+            UserCredentialModel cred = UserCredentialModel.password(password);
+            if (!context.getSession().userCredentialManager().isValid(context.getRealm(), context.getUser(), cred)) {
+                Response challenge = context.form()
+                        .setError(Messages.INVALID_PASSWORD_EXISTING)
+                        .createResponse(UserModel.RequiredAction.UPDATE_PASSWORD);
+                context.challenge(challenge);
+                errorEvent.error(Errors.INVALID_USER_CREDENTIALS);
+                return;
+            }
+        }
 
         if (Validation.isBlank(passwordNew)) {
             Response challenge = context.form()
@@ -108,12 +139,20 @@ public class UpdatePassword implements RequiredActionProvider, RequiredActionFac
         }
 
         try {
-            context.getSession().userCredentialManager().updateCredential(context.getRealm(), context.getUser(), UserCredentialModel.password(passwordNew));
+            context.getSession().userCredentialManager().updateCredential(context.getRealm(), context.getUser(), UserCredentialModel.password(password, passwordNew));
             context.success();
         } catch (ModelException me) {
-            errorEvent.detail(Details.REASON, me.getMessage()).error(Errors.PASSWORD_REJECTED);
+            String message = me.getMessage();
+            if (me.getCause() != null && me.getCause().getMessage() != null) {
+                Pattern pattern = Pattern.compile("\\[LDAP: error code 19 - (.*?)\\]");
+                Matcher matcher = pattern.matcher(me.getCause().getMessage());
+                if (matcher.find()) {
+                    message = matcher.group(1);
+                }
+            }
+            errorEvent.detail(Details.REASON, message).error(Errors.PASSWORD_REJECTED);
             Response challenge = context.form()
-                    .setError(me.getMessage(), me.getParameters())
+                    .setError(message, me.getParameters())
                     .createResponse(UserModel.RequiredAction.UPDATE_PASSWORD);
             context.challenge(challenge);
             return;

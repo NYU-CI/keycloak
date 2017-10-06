@@ -99,10 +99,24 @@ public class LDAPIdentityStore implements IdentityStore {
     @Override
     public void update(LDAPObject ldapObject) {
         BasicAttributes updatedAttributes = extractAttributes(ldapObject, false);
+        NamingEnumeration<Attribute> attributesToBeRemoved = extractAttributesToBeRemoved(ldapObject).getAll();
         NamingEnumeration<Attribute> attributes = updatedAttributes.getAll();
 
         String entryDn = ldapObject.getDn().toString();
         this.operationManager.modifyAttributes(entryDn, attributes);
+        try {
+            while (attributesToBeRemoved.hasMore()) {
+                this.operationManager.removeAttribute(entryDn, attributesToBeRemoved.next());
+            }
+        } catch (NamingException e) {
+            if (logger.isDebugEnabled()) {
+                logger.debugf("Could not remove attribute on entry from DN [" + entryDn + "]");
+            }
+        } catch (ModelException e) {
+            if (logger.isDebugEnabled()) {
+                logger.debugf("Could not remove attribute on entry from DN [" + entryDn + "]");
+            }
+        }
 
         if (logger.isDebugEnabled()) {
             logger.debugf("Type with identifier [%s] and DN [%s] successfully updated to LDAP store.", ldapObject.getUuid(), entryDn);
@@ -380,6 +394,20 @@ public class LDAPIdentityStore implements IdentityStore {
         }
     }
 
+    protected BasicAttributes extractAttributesToBeRemoved(LDAPObject ldapObject){
+        BasicAttributes entryAttributes = new BasicAttributes();
+
+        for (Map.Entry<String, Set<String>> attrEntry : ldapObject.getAttributes().entrySet()) {
+            String attrName = attrEntry.getKey();
+            Set<String> attrValue = attrEntry.getValue();
+
+            if(attrValue.equals(LDAPConstants.ATTRIBUTE_TO_BE_REMOVED)){
+                entryAttributes.put(new BasicAttribute(attrName));
+            }
+
+        }
+        return entryAttributes;
+    }
 
     protected BasicAttributes extractAttributes(LDAPObject ldapObject, boolean isCreate) {
         BasicAttributes entryAttributes = new BasicAttributes();
@@ -398,7 +426,7 @@ public class LDAPIdentityStore implements IdentityStore {
                 }
 
                 // Ignore empty attributes during create
-                if (isCreate && attrValue.isEmpty()) {
+                if ((isCreate && attrValue.isEmpty()) || attrValue.equals(LDAPConstants.ATTRIBUTE_TO_BE_REMOVED)) {
                     continue;
                 }
 

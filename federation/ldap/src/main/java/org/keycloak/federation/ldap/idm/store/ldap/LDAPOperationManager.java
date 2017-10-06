@@ -22,35 +22,14 @@ import org.keycloak.federation.ldap.LDAPConfig;
 import org.keycloak.federation.ldap.idm.query.internal.LDAPQuery;
 import org.keycloak.models.LDAPConstants;
 import org.keycloak.models.ModelException;
+import org.springframework.security.ldap.ppolicy.PasswordPolicyControl;
+import org.springframework.security.ldap.ppolicy.PasswordPolicyResponseControl;
 
-import javax.naming.AuthenticationException;
-import javax.naming.Binding;
-import javax.naming.Context;
-import javax.naming.InitialContext;
-import javax.naming.NamingEnumeration;
-import javax.naming.NamingException;
-import javax.naming.directory.Attribute;
-import javax.naming.directory.Attributes;
-import javax.naming.directory.DirContext;
-import javax.naming.directory.ModificationItem;
-import javax.naming.directory.SearchControls;
-import javax.naming.directory.SearchResult;
-import javax.naming.ldap.Control;
-import javax.naming.ldap.InitialLdapContext;
-import javax.naming.ldap.LdapContext;
-import javax.naming.ldap.PagedResultsControl;
-import javax.naming.ldap.PagedResultsResponseControl;
+import javax.naming.*;
+import javax.naming.directory.*;
+import javax.naming.ldap.*;
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Hashtable;
-import java.util.List;
-import java.util.Map;
-import java.util.Properties;
-import java.util.Set;
+import java.util.*;
 
 /**
  * <p>This class provides a set of operations to manage LDAP trees.</p>
@@ -357,7 +336,11 @@ public class LDAPOperationManager {
      *
      */
     public void authenticate(String dn, String password) throws AuthenticationException {
-        InitialContext authCtx = null;
+        authenticate(dn, password, Boolean.TRUE);
+    }
+
+    public void authenticate(String dn, String password, Boolean isPasswordPolicy) throws AuthenticationException {
+        InitialLdapContext authCtx = null;
 
         try {
             if (password == null || password.isEmpty()) {
@@ -373,7 +356,29 @@ public class LDAPOperationManager {
             // Never use connection pool to prevent password caching
             env.put("com.sun.jndi.ldap.connect.pool", "false");
 
-            authCtx = new InitialLdapContext(env, null);
+            Control[] connCtls = null;
+
+            if (isPasswordPolicy) {
+                connCtls = new Control[]{new PasswordPolicyControl()};
+            }
+
+            new PasswordPolicyResponseControl(new InitialLdapContext(env, new Control[]{new PasswordPolicyControl()})
+                    .getResponseControls()[0].getEncodedValue());
+
+            authCtx = new InitialLdapContext(env, connCtls);
+
+            if (isPasswordPolicy) {
+                Control[] responseControls = authCtx.getResponseControls();
+                for(Control control : responseControls) {
+                    if(PasswordPolicyControl.OID.equals(control.getID())){
+                        PasswordPolicyResponseControl responseControl = new PasswordPolicyResponseControl(control.getEncodedValue());
+                        if(responseControl.hasError()){
+                            AuthenticationException ae = new AuthenticationException(responseControl.getErrorStatus().getDefaultMessage());
+                            throw  ae;
+                        }
+                    }
+                }
+            }
 
         } catch (AuthenticationException ae) {
             if (logger.isDebugEnabled()) {

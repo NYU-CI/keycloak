@@ -25,7 +25,7 @@
                     <label for="password-new" class="${properties.kcLabelClass!}">${msg("passwordNew")}</label>
                 </div>
                 <div class="${properties.kcInputWrapperClass!}">
-                    <input type="password" id="password-new" name="password-new" class="${properties.kcInputClass!}" autofocus autocomplete="off" />
+                    <input type="password" id="password-new" name="password-new" class="${properties.kcInputClass!}" <#if !isLdapUser>autofocus </#if>autocomplete="off" />
                 </div>
             </div>
 

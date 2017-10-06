@@ -34,6 +34,7 @@ import org.keycloak.federation.ldap.mappers.LDAPFederationMapper;
 import org.keycloak.federation.ldap.mappers.UserAttributeLDAPFederationMapper;
 import org.keycloak.federation.ldap.mappers.UserAttributeLDAPFederationMapperFactory;
 import org.keycloak.federation.ldap.mappers.msad.MSADUserAccountControlMapperFactory;
+import org.keycloak.federation.ldap.mappers.ppolicy.PPolicyUserAccountControlMapperFactory;
 import org.keycloak.mappers.FederationConfigValidationException;
 import org.keycloak.mappers.UserFederationMapper;
 import org.keycloak.models.KeycloakSession;
@@ -220,6 +221,10 @@ public class LDAPFederationProviderFactory extends UserFederationEventAwareProvi
         // MSAD specific mapper for account state propagation
         if (activeDirectory) {
             mapperModel = KeycloakModelUtils.createUserFederationMapperModel("MSAD account controls", newProviderModel.getId(), MSADUserAccountControlMapperFactory.PROVIDER_ID);
+            realm.addUserFederationMapper(mapperModel);
+        }
+        if (newProviderModel.getDisplayName().endsWith("_ppolicy")) {
+            mapperModel = KeycloakModelUtils.createUserFederationMapperModel("Password Policy account controls", newProviderModel.getId(), PPolicyUserAccountControlMapperFactory.PROVIDER_ID);
             realm.addUserFederationMapper(mapperModel);
         }
     }

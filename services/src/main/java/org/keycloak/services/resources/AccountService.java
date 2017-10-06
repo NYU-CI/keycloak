@@ -648,22 +648,16 @@ public class AccountService extends AbstractSecuredLocalService {
         } catch (ModelException me) {
             ServicesLogger.LOGGER.failedToUpdatePassword(me);
             setReferrerOnPage();
+            String message = me.getMessage();
             if (me.getCause() != null && me.getCause().getMessage() != null) {
                 Pattern pattern = Pattern.compile("\\[LDAP: error code 19 - (.*?)\\]");
                 Matcher matcher = pattern.matcher(me.getCause().getMessage());
                 if (matcher.find()) {;
-                    String message = matcher.group(1);
-                    errorEvent.detail(Details.REASON, message).error(Errors.PASSWORD_REJECTED);
-                    return account.setError(message, me.getParameters()).createResponse(AccountPages.PASSWORD);
-                } else {
-                    errorEvent.detail(Details.REASON, me.getMessage()).error(Errors.PASSWORD_REJECTED);
-                    return account.setError(me.getMessage(), me.getParameters()).createResponse(AccountPages.PASSWORD);
+                    message = matcher.group(1);
                 }
-            } else {
-                errorEvent.detail(Details.REASON, me.getMessage()).error(Errors.PASSWORD_REJECTED);
-                return account.setError(me.getMessage(), me.getParameters()).createResponse(AccountPages.PASSWORD);
             }
-
+            errorEvent.detail(Details.REASON, message).error(Errors.PASSWORD_REJECTED);
+            return account.setError(message, me.getParameters()).createResponse(AccountPages.PASSWORD);
 
         } catch (Exception ape) {
             ServicesLogger.LOGGER.failedToUpdatePassword(ape);

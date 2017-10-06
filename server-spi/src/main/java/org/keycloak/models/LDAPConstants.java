@@ -17,7 +17,9 @@
 
 package org.keycloak.models;
 
+import java.util.LinkedHashSet;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * @author <a href="mailto:mposolda@redhat.com">Marek Posolda</a>
@@ -26,6 +28,7 @@ public class LDAPConstants {
 
     public static final String LDAP_PROVIDER = "ldap";
     public static final String MSAD_USER_ACCOUNT_CONTROL_MAPPER = "msad-user-account-control-mapper";
+    public static final String PPOLICY_USER_ACCOUNT_CONTROL_MAPPER = "ppolicy-user-account-control-mapper";
 
     public static final String VENDOR = "vendor";
     public static final String VENDOR_RHDS = "rhds";
@@ -93,10 +96,13 @@ public class LDAPConstants {
     public static final String GROUP_OF_UNIQUE_NAMES = "groupOfUniqueNames";
     public static final String USER_ACCOUNT_CONTROL = "userAccountControl";
     public static final String PWD_LAST_SET = "pwdLastSet";
+    public static final String PWD_RESET = "pwdReset";
+    public static final String PWD_ACCOUNT_LOCKED_TIME = "pwdAccountLockedTime";
 
     public static final String COMMA = ",";
     public static final String EQUAL = "=";
     public static final String EMPTY_ATTRIBUTE_VALUE = " ";
+    public static final Set<String> ATTRIBUTE_TO_BE_REMOVED =  new LinkedHashSet<>();
     public static final String EMPTY_MEMBER_ATTRIBUTE_VALUE = "cn=empty-membership-placeholder";
 
     public static final String CUSTOM_ATTRIBUTE_ENABLED = "enabled";
@@ -106,6 +112,7 @@ public class LDAPConstants {
     public static final String OBJECT_GUID = "objectGUID";
     public static final String CREATE_TIMESTAMP = "createTimestamp";
     public static final String MODIFY_TIMESTAMP = "modifyTimestamp";
+
 
     public static final String LDAP_MATCHING_RULE_IN_CHAIN = ":1.2.840.113556.1.4.1941:";
 

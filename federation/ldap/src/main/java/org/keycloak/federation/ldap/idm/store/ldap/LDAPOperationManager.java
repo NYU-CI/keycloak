@@ -336,7 +336,7 @@ public class LDAPOperationManager {
      *
      */
     public void authenticate(String dn, String password) throws AuthenticationException {
-        authenticate(dn, password, Boolean.TRUE);
+        authenticate(dn, password, Boolean.FALSE);
     }
 
     public void authenticate(String dn, String password, Boolean isPasswordPolicy) throws AuthenticationException {
@@ -361,9 +361,6 @@ public class LDAPOperationManager {
             if (isPasswordPolicy) {
                 connCtls = new Control[]{new PasswordPolicyControl()};
             }
-
-            new PasswordPolicyResponseControl(new InitialLdapContext(env, new Control[]{new PasswordPolicyControl()})
-                    .getResponseControls()[0].getEncodedValue());
 
             authCtx = new InitialLdapContext(env, connCtls);
 

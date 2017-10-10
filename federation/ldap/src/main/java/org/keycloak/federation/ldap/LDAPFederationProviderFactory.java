@@ -223,7 +223,7 @@ public class LDAPFederationProviderFactory extends UserFederationEventAwareProvi
             mapperModel = KeycloakModelUtils.createUserFederationMapperModel("MSAD account controls", newProviderModel.getId(), MSADUserAccountControlMapperFactory.PROVIDER_ID);
             realm.addUserFederationMapper(mapperModel);
         }
-        if (newProviderModel.getDisplayName().endsWith("_ppolicy")) {
+        if (ldapConfig.isPasswordPolicy()) {
             mapperModel = KeycloakModelUtils.createUserFederationMapperModel("Password Policy account controls", newProviderModel.getId(), PPolicyUserAccountControlMapperFactory.PROVIDER_ID);
             realm.addUserFederationMapper(mapperModel);
         }

@@ -1089,6 +1089,7 @@ module.controller('LDAPCtrl', function($scope, $location, $route, Notifications,
             instance.config.batchSizeForSync = DEFAULT_BATCH_SIZE;
             instance.config.searchScope = "1";
             instance.config.useTruststoreSpi = "ldapsOnly";
+            instance.config.ppolicy = false;
 
             $scope.fullSyncEnabled = false;
             $scope.changedSyncEnabled = false;
@@ -1100,6 +1101,7 @@ module.controller('LDAPCtrl', function($scope, $location, $route, Notifications,
 
             instance.config.allowKerberosAuthentication = (instance.config.allowKerberosAuthentication === 'true' || instance.config.allowKerberosAuthentication === true);
             instance.config.debug = (instance.config.debug === 'true' || instance.config.debug === true);
+            instance.config.ppolicy = (instance.config.ppolicy === 'true' || instance.config.ppolicy === true);
             instance.config.useKerberosForPasswordAuthentication = (instance.config.useKerberosForPasswordAuthentication === 'true' || instance.config.useKerberosForPasswordAuthentication === true);
 
             if (!instance.config.authType) {

@@ -133,6 +133,11 @@ public class LDAPConfig {
         return Boolean.parseBoolean(pagination);
     }
 
+    public boolean isPasswordPolicy() {
+        String ppolicy = config.get(LDAPConstants.PASSWORD_POLICY);
+        return Boolean.parseBoolean(ppolicy);
+    }
+
     public int getBatchSizeForSync() {
         String pageSizeConfig = config.get(LDAPConstants.BATCH_SIZE_FOR_SYNC);
         return pageSizeConfig!=null ? Integer.parseInt(pageSizeConfig) : LDAPConstants.DEFAULT_BATCH_SIZE_FOR_SYNC;

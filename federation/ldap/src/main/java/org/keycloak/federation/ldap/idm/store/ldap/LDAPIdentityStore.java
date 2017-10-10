@@ -211,7 +211,7 @@ public class LDAPIdentityStore implements IdentityStore {
             logger.tracef("Using DN [%s] for authentication of user", userDN);
         }
 
-        operationManager.authenticate(userDN, password);
+        operationManager.authenticate(userDN, password, getConfig().isPasswordPolicy());
     }
 
     @Override

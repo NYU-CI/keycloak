@@ -115,7 +115,7 @@ public class PPolicyUserAccountControlMapper extends AbstractLDAPFederationMappe
                     user.addRequiredAction(UserModel.RequiredAction.UPDATE_PASSWORD);
                     return true;
                 } else if (m_locked.matches()) {
-                    // User is disabled in MSAD. Set him to disabled in KC as well
+                    // User is disabled in LDAP. Set him to disabled in KC as well
                     user.setEnabled(false);
                     return true;
                 }

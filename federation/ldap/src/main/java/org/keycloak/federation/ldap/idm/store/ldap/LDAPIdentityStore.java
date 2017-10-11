@@ -104,15 +104,22 @@ public class LDAPIdentityStore implements IdentityStore {
 
         String entryDn = ldapObject.getDn().toString();
         this.operationManager.modifyAttributes(entryDn, attributes);
+
         try {
             while (attributesToBeRemoved.hasMore()) {
-                this.operationManager.removeAttribute(entryDn, attributesToBeRemoved.next());
+                try {
+                    this.operationManager.removeAttribute(entryDn, attributesToBeRemoved.next());
+                } catch (NamingException e) {
+                    if (logger.isDebugEnabled()) {
+                        logger.debugf("Could not remove attribute on entry from DN [" + entryDn + "]");
+                    }
+                } catch (ModelException e) {
+                    if (logger.isDebugEnabled()) {
+                        logger.debugf("Could not remove attribute on entry from DN [" + entryDn + "]");
+                    }
+                }
             }
         } catch (NamingException e) {
-            if (logger.isDebugEnabled()) {
-                logger.debugf("Could not remove attribute on entry from DN [" + entryDn + "]");
-            }
-        } catch (ModelException e) {
             if (logger.isDebugEnabled()) {
                 logger.debugf("Could not remove attribute on entry from DN [" + entryDn + "]");
             }

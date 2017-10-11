@@ -192,7 +192,7 @@
                 </div>
                 <kc-tooltip>{{:: 'ldap.pagination.tooltip' | translate}}</kc-tooltip>
             </div>
-            <div class="form-group clearfix" data-ng-show="instance.config.vendor == 'other'">
+            <div class="form-group clearfix" data-ng-show="instance.config.vendor != 'ad'">
                 <label class="col-md-2 control-label" for="ppolicy">{{:: 'ppolicy' | translate}}</label>
                 <div class="col-md-6">
                     <input ng-model="instance.config.ppolicy" name="ppolicy" id="ppolicy" onoffswitch on-text="{{:: 'onText' | translate}}" off-text="{{:: 'offText' | translate}}" />

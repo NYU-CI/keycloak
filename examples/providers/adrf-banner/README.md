@@ -1,23 +1,21 @@
-Example Custom Authenticator
+Authenticator ADRF Banner
 ===================================================
 
-1. First, Keycloak must be running.
+1. First, build keycloak (mvn install -Pdistribution [-DskipTests])
 
-2. Execute the follow.  This will build the example and deploy it
+2. Copy the jar file (./examples/providers/adrf-banner/target/authenticator-adrf-banner.jar) to the providers folder of keycloak (prod)
 
-   $ mvn clean install wildfly:deploy
+3. Copy the adrf-banner.ftl files to the themes/base/login directory.
 
-3. Copy the secret-question.ftl and secret-question-config.ftl files to the themes/base/login directory.
-
-4. Login to admin console.  Hit browser refresh if you are already logged in so that the new providers show up.
+4. Restart Keycloak.
 
 5. Go to the Authentication menu item and go to the Flow tab, you will be able to view the currently
    defined flows.  You cannot modify an built in flows, so, to add the Authenticator you
    have to copy an existing flow or create your own.  Copy the "Browser" flow.
 
-6. In your copy, click the "Actions" menu item and "Add Execution".  Pick Secret Question
+6. In your copy, in the Forms Auth Type, click the "Actions" menu (last column in the right) item and "Add Execution".  Pick ADRF Banner as Required.
 
-7. Next you have to register the required action that you created. Click on the Required Actions tab in the Authenticaiton menu.
-   Click on the Register button and choose your new Required Action.
-   Your new required action should now be displayed and enabled in the required actions list.
+7. Next you have to bind the new flow you created to the Browser Flow. Click on the Bind tab in the Authentication menu.
+   Choose your new Flow as the Browser Flow and Save it.
+   Now Keycloak will show your banner in all authetications by Form.
 

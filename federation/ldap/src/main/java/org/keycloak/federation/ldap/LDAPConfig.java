@@ -135,7 +135,7 @@ public class LDAPConfig {
 
     public boolean isPasswordPolicy() {
         String ppolicy = config.get(LDAPConstants.PASSWORD_POLICY);
-        return Boolean.parseBoolean(ppolicy);
+        return !isActiveDirectory() && Boolean.parseBoolean(ppolicy);
     }
 
     public int getBatchSizeForSync() {

@@ -48,6 +48,8 @@
                 <include>org/mvel/**</include>
                 <include>org/sonatype/**</include>
                 <include>sun/jdk/jgss/**</include>
+                <include>ldapsdk/**</include>
+                <include>org/springframework/security/**</include>
             </includes>
         </fileSet>
         <!-- Authorization -->

@@ -58,7 +58,7 @@ public class UserStorageSyncManager {
 
             @Override
             public void run(KeycloakSession session) {
-                List<RealmModel> realms = session.realms().getRealms();
+                List<RealmModel> realms = session.realms().getRealmsWithProviderType(UserStorageProvider.class);
                 for (final RealmModel realm : realms) {
                     List<UserStorageProviderModel> providers = realm.getUserStorageProviders();
                     for (final UserStorageProviderModel provider : providers) {
@@ -81,7 +81,7 @@ public class UserStorageSyncManager {
 
     public SynchronizationResult syncAllUsers(final KeycloakSessionFactory sessionFactory, final String realmId, final UserStorageProviderModel provider) {
         UserStorageProviderFactory factory = (UserStorageProviderFactory) sessionFactory.getProviderFactory(UserStorageProvider.class, provider.getProviderId());
-        if (!(factory instanceof ImportSynchronization) || !provider.isImportEnabled()) {
+        if (!(factory instanceof ImportSynchronization) || !provider.isImportEnabled() || !provider.isEnabled()) {
             return SynchronizationResult.ignored();
 
         }
@@ -122,7 +122,7 @@ public class UserStorageSyncManager {
 
     public SynchronizationResult syncChangedUsers(final KeycloakSessionFactory sessionFactory, final String realmId, final UserStorageProviderModel provider) {
         UserStorageProviderFactory factory = (UserStorageProviderFactory) sessionFactory.getProviderFactory(UserStorageProvider.class, provider.getProviderId());
-        if (!(factory instanceof ImportSynchronization) || !provider.isImportEnabled()) {
+        if (!(factory instanceof ImportSynchronization) || !provider.isImportEnabled() || !provider.isEnabled()) {
             return SynchronizationResult.ignored();
 
         }

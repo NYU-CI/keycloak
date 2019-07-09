@@ -18,7 +18,9 @@
 
 package org.keycloak.testsuite.x509;
 
+import org.jboss.arquillian.drone.api.annotation.Drone;
 import org.junit.Assert;
+import org.junit.Before;
 import org.junit.Ignore;
 import org.junit.Test;
 import org.keycloak.OAuth2Constants;
@@ -29,7 +31,11 @@ import org.keycloak.representations.AccessToken;
 import org.keycloak.representations.RefreshToken;
 import org.keycloak.representations.idm.AuthenticatorConfigRepresentation;
 import org.keycloak.representations.idm.UserRepresentation;
+import org.keycloak.testsuite.AssertEvents;
+import org.keycloak.testsuite.util.ContainerAssume;
 import org.keycloak.testsuite.util.OAuthClient;
+import org.keycloak.testsuite.util.PhantomJSBrowser;
+import org.openqa.selenium.WebDriver;
 
 import javax.ws.rs.core.Response;
 
@@ -47,6 +53,15 @@ import static org.keycloak.authentication.authenticators.x509.X509AuthenticatorC
  */
 
 public class X509DirectGrantTest extends AbstractX509AuthenticationTest {
+
+    @Drone
+    @PhantomJSBrowser
+    private WebDriver phantomJS;
+
+    @Before
+    public void replaceTheDefaultDriver() {
+        replaceDefaultWebDriver(phantomJS);
+    }
 
     @Test
     public void loginFailedOnDuplicateUsers() throws Exception {
@@ -115,6 +130,64 @@ public class X509DirectGrantTest extends AbstractX509AuthenticationTest {
     }
 
     @Test
+    public void loginWithNonSupportedCertKeyUsage() throws Exception {
+        // Set the X509 authenticator configuration
+        AuthenticatorConfigRepresentation cfg = newConfig("x509-directgrant-config",
+                createLoginSubjectEmailWithKeyUsage("dataEncipherment").getConfig());
+        String cfgId = createConfig(directGrantExecution.getId(), cfg);
+        Assert.assertNotNull(cfgId);
+
+        oauth.clientId("resource-owner");
+        OAuthClient.AccessTokenResponse response = oauth.doGrantAccessTokenRequest("secret", "", "", null);
+
+        assertEquals(401, response.getStatusCode());
+        assertEquals("invalid_request", response.getError());
+        Assert.assertThat(response.getErrorDescription(), containsString("Key Usage bit 'dataEncipherment' is not set."));
+        events.clear();
+    }
+
+    @Test
+    public void loginWithNonSupportedCertExtendedKeyUsage() throws Exception {
+        // Set the X509 authenticator configuration
+        AuthenticatorConfigRepresentation cfg = newConfig("x509-directgrant-config",
+                createLoginSubjectEmailWithExtendedKeyUsage("serverAuth").getConfig());
+        String cfgId = createConfig(directGrantExecution.getId(), cfg);
+        Assert.assertNotNull(cfgId);
+
+        oauth.clientId("resource-owner");
+        OAuthClient.AccessTokenResponse response = oauth.doGrantAccessTokenRequest("secret", "", "", null);
+
+        assertEquals(200, response.getStatusCode());
+    }
+
+    @Test
+    public void loginWithNonMatchingRegex() throws Exception {
+        X509AuthenticatorConfigModel config = createLoginIssuerDN_OU2CustomAttributeConfig();
+        config.setRegularExpression("INVALID=(.*?)(?:,|$)");
+        AuthenticatorConfigRepresentation cfg = newConfig("x509-directgrant-config", config.getConfig());
+
+        String cfgId = createConfig(directGrantExecution.getId(), cfg);
+        Assert.assertNotNull(cfgId);
+
+        oauth.clientId("resource-owner");
+        OAuthClient.AccessTokenResponse response = oauth.doGrantAccessTokenRequest("secret", "", "", null);
+
+        assertEquals(401, response.getStatusCode());
+
+        AssertEvents.ExpectedEvent expectedEvent = events.expectLogin()
+                .user((String) null)
+                .session((String) null)
+                .error("invalid_user_credentials")
+                .client("resource-owner")
+                .removeDetail(Details.CODE_ID)
+                .removeDetail(Details.CONSENT)
+                .removeDetail(Details.REDIRECT_URI);
+
+        addX509CertificateDetails(expectedEvent)
+                .assertEvent();
+    }
+
+    @Test
     public void loginFailedDisabledUser() throws Exception {
         setUserEnabled("test-user@localhost", false);
 
@@ -144,6 +217,31 @@ public class X509DirectGrantTest extends AbstractX509AuthenticationTest {
         } finally {
             setUserEnabled("test-user@localhost", true);
         }
+    }
+
+    @Test
+    public void loginCertificateRevoked() throws Exception {
+        // Not possible to test file CRL on undertow at this moment - jboss config dir doesn't exists
+        ContainerAssume.assumeNotAuthServerUndertow();
+
+        X509AuthenticatorConfigModel config =
+                new X509AuthenticatorConfigModel()
+                        .setCRLEnabled(true)
+                        .setCRLRelativePath(INTERMEDIATE_CA_CRL_PATH)
+                        .setConfirmationPageAllowed(true)
+                        .setMappingSourceType(SUBJECTDN_EMAIL)
+                        .setUserIdentityMapperType(USERNAME_EMAIL);
+        AuthenticatorConfigRepresentation cfg = newConfig("x509-directgrant-config", config.getConfig());
+        String cfgId = createConfig(directGrantExecution.getId(), cfg);
+        Assert.assertNotNull(cfgId);
+
+        oauth.clientId("resource-owner");
+        OAuthClient.AccessTokenResponse response = oauth.doGrantAccessTokenRequest("secret", "", "", null);
+
+        assertEquals(401, response.getStatusCode());
+        assertEquals("invalid_request", response.getError());
+        Assert.assertThat(response.getErrorDescription(), containsString("Certificate has been revoked, certificate's subject:"));
+
     }
 
     private void loginForceTemporaryAccountLock() throws Exception {
@@ -211,9 +309,9 @@ public class X509DirectGrantTest extends AbstractX509AuthenticationTest {
         assertEquals(200, response.getStatusCode());
 
         AccessToken accessToken = oauth.verifyToken(response.getAccessToken());
-        RefreshToken refreshToken = oauth.verifyRefreshToken(response.getRefreshToken());
+        RefreshToken refreshToken = oauth.parseRefreshToken(response.getRefreshToken());
 
-        events.expectLogin()
+        AssertEvents.ExpectedEvent expectedEvent = events.expectLogin()
                 .client(clientId)
                 .user(userId)
                 .session(accessToken.getSessionState())
@@ -223,7 +321,9 @@ public class X509DirectGrantTest extends AbstractX509AuthenticationTest {
                 .detail(Details.USERNAME, login)
                 .removeDetail(Details.CODE_ID)
                 .removeDetail(Details.REDIRECT_URI)
-                .removeDetail(Details.CONSENT)
+                .removeDetail(Details.CONSENT);
+
+        addX509CertificateDetails(expectedEvent)
                 .assertEvent();
     }
 

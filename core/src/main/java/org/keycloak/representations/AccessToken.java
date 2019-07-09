@@ -19,12 +19,14 @@ package org.keycloak.representations;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import org.keycloak.TokenCategory;
 import org.keycloak.representations.idm.authorization.Permission;
 
 import java.io.Serializable;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -86,14 +88,29 @@ public class AccessToken extends IDToken {
     public static class Authorization implements Serializable {
 
         @JsonProperty("permissions")
-        private List<Permission> permissions;
+        private Collection<Permission> permissions;
 
-        public List<Permission> getPermissions() {
+        public Collection<Permission> getPermissions() {
             return permissions;
         }
 
-        public void setPermissions(List<Permission> permissions) {
+        public void setPermissions(Collection<Permission> permissions) {
             this.permissions = permissions;
+        }
+    }
+
+    // KEYCLOAK-6771 Certificate Bound Token
+    // https://tools.ietf.org/html/draft-ietf-oauth-mtls-08#section-3.1
+    public static class CertConf {
+        @JsonProperty("x5t#S256")
+        protected String certThumbprint;
+
+        public String getCertThumbprint() {
+            return certThumbprint;
+        }
+
+        public void setCertThumbprint(String certThumbprint) {
+            this.certThumbprint = certThumbprint;
         }
     }
 
@@ -107,13 +124,20 @@ public class AccessToken extends IDToken {
     protected Access realmAccess;
 
     @JsonProperty("resource_access")
-    protected Map<String, Access> resourceAccess = new HashMap<String, Access>();
+    protected Map<String, Access> resourceAccess;
 
     @JsonProperty("authorization")
     protected Authorization authorization;
 
+    @JsonProperty("cnf")
+    protected CertConf certConf;
+
+    @JsonProperty("scope")
+    protected String scope;
+
+    @JsonIgnore
     public Map<String, Access> getResourceAccess() {
-        return resourceAccess;
+        return resourceAccess == null ? Collections.<String, Access>emptyMap() : resourceAccess;
     }
 
     public void setResourceAccess(Map<String, Access> resourceAccess) {
@@ -150,10 +174,14 @@ public class AccessToken extends IDToken {
 
     @JsonIgnore
     public Access getResourceAccess(String resource) {
-        return resourceAccess.get(resource);
+        return resourceAccess == null ? null : resourceAccess.get(resource);
     }
 
     public Access addAccess(String service) {
+        if (resourceAccess == null) {
+            resourceAccess = new HashMap<>();
+        }
+
         Access access = resourceAccess.get(service);
         if (access != null) return access;
         access = new Access();
@@ -233,4 +261,26 @@ public class AccessToken extends IDToken {
     public void setAuthorization(Authorization authorization) {
         this.authorization = authorization;
     }
+    
+    public CertConf getCertConf() {
+        return certConf;
+    }
+
+    public void setCertConf(CertConf certConf) {
+        this.certConf = certConf;
+    }
+
+    public String getScope() {
+        return scope;
+    }
+
+    public void setScope(String scope) {
+        this.scope = scope;
+    }
+
+    @Override
+    public TokenCategory getCategory() {
+        return TokenCategory.ACCESS;
+    }
+
 }

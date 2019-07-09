@@ -31,6 +31,7 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 
 /**
  * @author <a href="mailto:psilva@redhat.com">Pedro Igor</a>
@@ -39,10 +40,17 @@ public class DefaultEvaluationContext implements EvaluationContext {
 
     protected final KeycloakSession keycloakSession;
     protected final Identity identity;
+    private final Map<String, List<String>> claims;
+    private Attributes attributes;
 
     public DefaultEvaluationContext(Identity identity, KeycloakSession keycloakSession) {
-        this.keycloakSession = keycloakSession;
+        this(identity, null, keycloakSession);
+    }
+
+    public DefaultEvaluationContext(Identity identity, Map<String, List<String>> claims, KeycloakSession keycloakSession) {
         this.identity = identity;
+        this.claims = claims;
+        this.keycloakSession = keycloakSession;
     }
 
     @Override
@@ -50,10 +58,10 @@ public class DefaultEvaluationContext implements EvaluationContext {
         return identity;
     }
 
-    public Map<String, Collection<String>> getBaseAttributes() {
-        HashMap<String, Collection<String>> attributes = new HashMap<>();
+    protected Map<String, Collection<String>> getBaseAttributes() {
+        Map<String, Collection<String>> attributes = new HashMap<>();
 
-        attributes.put("kc.time.date_time", Arrays.asList(new SimpleDateFormat("MM/dd/yyyy hh:mm:ss").format(new Date())));
+        attributes.put("kc.time.date_time", Arrays.asList(new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date())));
         attributes.put("kc.client.network.ip_address", Arrays.asList(this.keycloakSession.getContext().getConnection().getRemoteAddr()));
         attributes.put("kc.client.network.host", Arrays.asList(this.keycloakSession.getContext().getConnection().getRemoteHost()));
 
@@ -65,11 +73,28 @@ public class DefaultEvaluationContext implements EvaluationContext {
 
         attributes.put("kc.realm.name", Arrays.asList(this.keycloakSession.getContext().getRealm().getName()));
 
+        if (claims != null) {
+            for (Entry<String, List<String>> entry : claims.entrySet()) {
+                attributes.put(entry.getKey(), entry.getValue());
+            }
+        }
+
+        if (KeycloakIdentity.class.isInstance(identity)) {
+            AccessToken accessToken = KeycloakIdentity.class.cast(this.identity).getAccessToken();
+
+            if (accessToken != null) {
+                attributes.put("kc.client.id", Arrays.asList(accessToken.getIssuedFor()));
+            }
+        }
+
         return attributes;
     }
 
     @Override
     public Attributes getAttributes() {
-        return Attributes.from(getBaseAttributes());
+        if (attributes == null) {
+            attributes = Attributes.from(getBaseAttributes());
+        }
+        return attributes;
     }
 }

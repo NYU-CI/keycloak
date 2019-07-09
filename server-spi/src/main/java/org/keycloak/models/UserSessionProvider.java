@@ -19,7 +19,10 @@ package org.keycloak.models;
 
 import org.keycloak.provider.Provider;
 
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 import java.util.function.Predicate;
 
 /**
@@ -29,7 +32,9 @@ import java.util.function.Predicate;
 public interface UserSessionProvider extends Provider {
 
     AuthenticatedClientSessionModel createClientSession(RealmModel realm, ClientModel client, UserSessionModel userSession);
+    AuthenticatedClientSessionModel getClientSession(UserSessionModel userSession, ClientModel client, UUID clientSessionId, boolean offline);
 
+    UserSessionModel createUserSession(RealmModel realm, UserModel user, String loginUsername, String ipAddress, String authMethod, boolean rememberMe, String brokerSessionId, String brokerUserId);
     UserSessionModel createUserSession(String id, RealmModel realm, UserModel user, String loginUsername, String ipAddress, String authMethod, boolean rememberMe, String brokerSessionId, String brokerUserId);
     UserSessionModel getUserSession(RealmModel realm, String id);
     List<UserSessionModel> getUserSessions(RealmModel realm, UserModel user);
@@ -39,18 +44,27 @@ public interface UserSessionProvider extends Provider {
     UserSessionModel getUserSessionByBrokerSessionId(RealmModel realm, String brokerSessionId);
 
     /**
-     * Return userSession of specified ID as long as the predicate passes. Otherwise returs null.
+     * Return userSession of specified ID as long as the predicate passes. Otherwise returns {@code null}.
      * If predicate doesn't pass, implementation can do some best-effort actions to try have predicate passing (eg. download userSession from other DC)
      */
     UserSessionModel getUserSessionWithPredicate(RealmModel realm, String id, boolean offline, Predicate<UserSessionModel> predicate);
 
     long getActiveUserSessions(RealmModel realm, ClientModel client);
 
+    /**
+     * Returns a summary of client sessions key is client.getId()
+     *
+     * @param realm
+     * @param offline
+     * @return
+     */
+    Map<String, Long> getActiveClientSessionStats(RealmModel realm, boolean offline);
+
     /** This will remove attached ClientLoginSessionModels too **/
     void removeUserSession(RealmModel realm, UserSessionModel session);
     void removeUserSessions(RealmModel realm, UserModel user);
 
-    /** Implementation should propagate removal of expired userSessions to userSessionPersister too **/
+    /** Implementation doesn't need to propagate removal of expired userSessions to userSessionPersister. Cleanup on persister will be called separately **/
     void removeExpired(RealmModel realm);
     void removeUserSessions(RealmModel realm);
 
@@ -76,8 +90,8 @@ public interface UserSessionProvider extends Provider {
     long getOfflineSessionsCount(RealmModel realm, ClientModel client);
     List<UserSessionModel> getOfflineUserSessions(RealmModel realm, ClientModel client, int first, int max);
 
-    /** Triggered by persister during pre-load. It optionally imports authenticatedClientSessions too if requested. Otherwise the imported UserSession will have empty list of AuthenticationSessionModel **/
-    UserSessionModel importUserSession(UserSessionModel persistentUserSession, boolean offline, boolean importAuthenticatedClientSessions);
+    /** Triggered by persister during pre-load. It imports authenticatedClientSessions too **/
+    void importUserSessions(Collection<UserSessionModel> persistentUserSessions, boolean offline);
 
     void close();
 

@@ -20,25 +20,29 @@ package org.keycloak.testsuite.rest.resource;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 import javax.ws.rs.Consumes;
 import javax.ws.rs.GET;
+import javax.ws.rs.POST;
 import javax.ws.rs.Path;
 import javax.ws.rs.PathParam;
 import javax.ws.rs.Produces;
-import javax.ws.rs.core.MediaType;
+import javax.ws.rs.QueryParam;
 
 import org.infinispan.Cache;
 import org.infinispan.client.hotrod.RemoteCache;
 import org.infinispan.remoting.transport.Transport;
-import org.infinispan.remoting.transport.jgroups.JGroupsTransport;
 import org.jgroups.JChannel;
 import org.keycloak.connections.infinispan.InfinispanConnectionProvider;
 import org.keycloak.models.KeycloakSession;
+import org.keycloak.models.sessions.infinispan.changes.SessionEntityWrapper;
 import org.keycloak.models.sessions.infinispan.entities.UserSessionEntity;
 import org.keycloak.models.sessions.infinispan.util.InfinispanUtil;
 import org.keycloak.testsuite.rest.representation.JGroupsStats;
+import org.keycloak.utils.MediaType;
+import org.infinispan.stream.CacheCollectors;
 
 /**
  * @author <a href="mailto:mposolda@redhat.com">Marek Posolda</a>
@@ -60,16 +64,22 @@ public class TestCacheResource {
         return cache.containsKey(id);
     }
 
+    @GET
+    @Path("/contains-uuid/{id}")
+    @Produces(MediaType.APPLICATION_JSON)
+    public boolean containsUuid(@PathParam("id") String id) {
+        UUID uuid = UUID.fromString(id);
+        return cache.containsKey(uuid);
+    }
+
 
     @GET
     @Path("/enumerate-keys")
     @Produces(MediaType.APPLICATION_JSON)
     public Set<String> enumerateKeys() {
-        return cache.keySet().stream().map((Object o) -> {
-
-            return o.toString();
-
-        }).collect(Collectors.toSet());
+        return cache.keySet().stream()
+          .map(Object::toString)
+          .collect(CacheCollectors.serializableCollector(Collectors::toSet));    // See https://issues.jboss.org/browse/ISPN-7596
     }
 
 
@@ -82,9 +92,16 @@ public class TestCacheResource {
 
     @GET
     @Path("/clear")
-    @Consumes(MediaType.TEXT_PLAIN)
+    @Consumes(MediaType.TEXT_PLAIN_UTF_8)
     public void clear() {
         cache.clear();
+    }
+
+    @POST
+    @Path("/remove-key/{id}")
+    @Produces(MediaType.APPLICATION_JSON)
+    public void removeKey(@PathParam("id") String id) {
+        cache.remove(id);
     }
 
     @GET
@@ -128,11 +145,11 @@ public class TestCacheResource {
         if (remoteCache == null) {
             return -1;
         } else {
-            UserSessionEntity userSession = (UserSessionEntity) remoteCache.get(userSessionId);
+            SessionEntityWrapper<UserSessionEntity> userSession = (SessionEntityWrapper<UserSessionEntity>) remoteCache.get(userSessionId);
             if (userSession == null) {
                 return -1;
             } else {
-                return userSession.getLastSessionRefresh();
+                return userSession.getEntity().getLastSessionRefresh();
             }
         }
     }

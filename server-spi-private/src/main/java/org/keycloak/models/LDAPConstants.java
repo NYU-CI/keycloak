@@ -57,11 +57,20 @@ public class LDAPConstants {
 
     public static final String SEARCH_SCOPE = "searchScope";
     public static final String CONNECTION_POOLING = "connectionPooling";
+    public static final String CONNECTION_POOLING_AUTHENTICATION = "connectionPoolingAuthentication";
+    public static final String CONNECTION_POOLING_DEBUG = "connectionPoolingDebug";
+    public static final String CONNECTION_POOLING_INITSIZE = "connectionPoolingInitSize";
+    public static final String CONNECTION_POOLING_MAXSIZE = "connectionPoolingMaxSize";
+    public static final String CONNECTION_POOLING_PREFSIZE = "connectionPoolingPrefSize";
+    public static final String CONNECTION_POOLING_PROTOCOL = "connectionPoolingProtocol";
+    public static final String CONNECTION_POOLING_TIMEOUT = "connectionPoolingTimeout";
     public static final String CONNECTION_TIMEOUT = "connectionTimeout";
     public static final String READ_TIMEOUT = "readTimeout";
     public static final String PAGINATION = "pagination";
 
     public static final String EDIT_MODE = "editMode";
+
+    public static final String VALIDATE_PASSWORD_POLICY = "validatePasswordPolicy";
 
     // Count of users processed per single transaction during sync process
     public static final String BATCH_SIZE_FOR_SYNC = "batchSizeForSync";
@@ -72,6 +81,8 @@ public class LDAPConstants {
 
     // Custom user search filter
     public static final String CUSTOM_USER_SEARCH_FILTER = "customUserSearchFilter";
+
+    public static final String START_TLS = "startTls";
 
     // Custom attributes on UserModel, which is mapped to LDAP
     public static final String LDAP_ID = "LDAP_ID";

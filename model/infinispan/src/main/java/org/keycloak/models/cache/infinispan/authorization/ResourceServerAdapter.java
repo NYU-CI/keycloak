@@ -19,6 +19,7 @@ package org.keycloak.models.cache.infinispan.authorization;
 import org.keycloak.authorization.model.CachedModel;
 import org.keycloak.authorization.model.ResourceServer;
 import org.keycloak.models.cache.infinispan.authorization.entities.CachedResourceServer;
+import org.keycloak.representations.idm.authorization.DecisionStrategy;
 import org.keycloak.representations.idm.authorization.PolicyEnforcementMode;
 
 /**
@@ -38,7 +39,7 @@ public class ResourceServerAdapter implements ResourceServer, CachedModel<Resour
     @Override
     public ResourceServer getDelegateForUpdate() {
         if (updated == null) {
-            cacheSession.registerResourceServerInvalidation(cached.getId(), cached.getClientId());
+            cacheSession.registerResourceServerInvalidation(cached.getId());
             updated = cacheSession.getResourceServerStoreDelegate().findById(cached.getId());
             if (updated == null) throw new IllegalStateException("Not found in database");
         }
@@ -79,12 +80,6 @@ public class ResourceServerAdapter implements ResourceServer, CachedModel<Resour
     }
 
     @Override
-    public String getClientId() {
-        if (isUpdated()) return updated.getClientId();
-        return cached.getClientId();
-    }
-
-    @Override
     public boolean isAllowRemoteResourceManagement() {
         if (isUpdated()) return updated.isAllowRemoteResourceManagement();
         return cached.isAllowRemoteResourceManagement();
@@ -107,6 +102,18 @@ public class ResourceServerAdapter implements ResourceServer, CachedModel<Resour
         getDelegateForUpdate();
         updated.setPolicyEnforcementMode(enforcementMode);
 
+    }
+
+    @Override
+    public DecisionStrategy getDecisionStrategy() {
+        if (isUpdated()) return updated.getDecisionStrategy();
+        return cached.getDecisionStrategy();
+    }
+
+    @Override
+    public void setDecisionStrategy(DecisionStrategy decisionStrategy) {
+        getDelegateForUpdate();
+        updated.setDecisionStrategy(decisionStrategy);
     }
 
     @Override

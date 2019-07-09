@@ -22,9 +22,11 @@ import java.io.UnsupportedEncodingException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+
+import javax.net.ssl.HostnameVerifier;
+import javax.net.ssl.SSLSession;
 import javax.ws.rs.core.Response;
 import org.apache.http.NameValuePair;
 import org.apache.http.client.entity.UrlEncodedFormEntity;
@@ -34,11 +36,13 @@ import org.apache.http.client.methods.HttpPost;
 import org.apache.http.client.methods.HttpUriRequest;
 import org.apache.http.client.protocol.HttpClientContext;
 import org.apache.http.client.utils.URLEncodedUtils;
+import org.apache.http.conn.ssl.TrustSelfSignedStrategy;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.http.impl.client.LaxRedirectStrategy;
 import org.apache.http.message.BasicNameValuePair;
 import org.apache.http.util.EntityUtils;
+import org.jboss.resteasy.client.jaxrs.ResteasyClientBuilder;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Element;
 import org.junit.Assert;
@@ -48,20 +52,26 @@ import org.keycloak.OAuth2Constants;
 import org.keycloak.admin.client.Keycloak;
 import org.keycloak.admin.client.resource.ClientsResource;
 import org.keycloak.admin.client.resource.RealmResource;
+import org.keycloak.jose.jws.JWSInput;
+import org.keycloak.models.utils.KeycloakModelUtils;
 import org.keycloak.representations.AccessToken;
 import org.keycloak.representations.idm.ClientRepresentation;
-import org.keycloak.testsuite.Retry;
+import org.keycloak.common.util.Retry;
 import org.keycloak.testsuite.admin.ApiUtil;
 import org.keycloak.testsuite.util.ClientBuilder;
 import org.keycloak.testsuite.util.OAuthClient;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
+import java.util.Random;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
 import org.apache.http.client.CookieStore;
 import org.apache.http.impl.client.BasicCookieStore;
 import org.hamcrest.Matchers;
+import org.keycloak.util.JsonSerialization;
 
+import static org.hamcrest.Matchers.containsString;
 
 
 /**
@@ -84,8 +94,8 @@ public class ConcurrentLoginTest extends AbstractConcurrencyTest {
             ClientRepresentation client = ClientBuilder.create()
               .clientId("client" + i)
               .directAccessGrants()
-              .redirectUris("http://localhost:8180/auth/realms/master/app/*")
-              .addWebOrigin("http://localhost:8180")
+              .redirectUris("*")
+              .addWebOrigin("*")
               .secret("password")
               .build();
 
@@ -106,8 +116,8 @@ public class ConcurrentLoginTest extends AbstractConcurrencyTest {
         AtomicReference<String> userSessionId = new AtomicReference<>();
         LoginTask loginTask = null;
 
-        try (CloseableHttpClient httpClient = HttpClientBuilder.create().setRedirectStrategy(new LaxRedirectStrategy()).build()) {
-            loginTask = new LoginTask(httpClient, userSessionId, 100, 1, Arrays.asList(
+        try (CloseableHttpClient httpClient = getHttpsAwareClient()) {
+            loginTask = new LoginTask(httpClient, userSessionId, 100, 1, false, Arrays.asList(
               createHttpClientContextForUser(httpClient, "test-user@localhost", "password")
             ));
             run(DEFAULT_THREADS, DEFAULT_CLIENTS_COUNT, loginTask);
@@ -121,14 +131,45 @@ public class ConcurrentLoginTest extends AbstractConcurrencyTest {
         }
     }
 
+    protected CloseableHttpClient getHttpsAwareClient() {
+        HttpClientBuilder builder = HttpClientBuilder.create()
+              .setRedirectStrategy(new LaxRedirectStrategy());
+        if (AUTH_SERVER_SSL_REQUIRED) {
+            builder.setSSLHostnameVerifier((s, sslSession) -> true);
+        }
+        return builder.build();
+    }
+
     protected HttpClientContext createHttpClientContextForUser(final CloseableHttpClient httpClient, String userName, String password) throws IOException {
         final HttpClientContext context = HttpClientContext.create();
         CookieStore cookieStore = new BasicCookieStore();
         context.setCookieStore(cookieStore);
         HttpUriRequest request = handleLogin(getPageContent(oauth.getLoginFormUrl(), httpClient, context), userName, password);
-        log.debug("Executing login request");
-        Assert.assertTrue(parseAndCloseResponse(httpClient.execute(request, context)).contains("<title>AUTH_RESPONSE</title>"));
+        Assert.assertThat(parseAndCloseResponse(httpClient.execute(request, context)), containsString("<title>AUTH_RESPONSE</title>"));
         return context;
+    }
+
+    @Test
+    public void concurrentLoginSingleUserSingleClient() throws Throwable {
+        log.info("*********************************************");
+        long start = System.currentTimeMillis();
+
+        AtomicReference<String> userSessionId = new AtomicReference<>();
+        LoginTask loginTask = null;
+
+        try (CloseableHttpClient httpClient = getHttpsAwareClient()) {
+            loginTask = new LoginTask(httpClient, userSessionId, 100, 1, true, Arrays.asList(
+                    createHttpClientContextForUser(httpClient, "test-user@localhost", "password")
+            ));
+            run(DEFAULT_THREADS, DEFAULT_CLIENTS_COUNT, loginTask);
+            int clientSessionsCount = testingClient.testing().getClientSessionsCountInUserSession("test", userSessionId.get());
+            Assert.assertEquals(2, clientSessionsCount);
+        } finally {
+            long end = System.currentTimeMillis() - start;
+            log.infof("Statistics: %s", loginTask == null ? "??" : loginTask.getHistogram());
+            log.info("concurrentLoginSingleUserSingleClient took " + (end/1000) + "s");
+            log.info("*********************************************");
+        }
     }
 
     @Test
@@ -139,8 +180,8 @@ public class ConcurrentLoginTest extends AbstractConcurrencyTest {
         AtomicReference<String> userSessionId = new AtomicReference<>();
         LoginTask loginTask = null;
 
-        try (CloseableHttpClient httpClient = HttpClientBuilder.create().setRedirectStrategy(new LaxRedirectStrategy()).build()) {
-            loginTask = new LoginTask(httpClient, userSessionId, 100, 1, Arrays.asList(
+        try (CloseableHttpClient httpClient = getHttpsAwareClient()) {
+            loginTask = new LoginTask(httpClient, userSessionId, 100, 1, false, Arrays.asList(
               createHttpClientContextForUser(httpClient, "test-user@localhost", "password"),
               createHttpClientContextForUser(httpClient, "john-doh@localhost", "password"),
               createHttpClientContextForUser(httpClient, "roleRichUser", "password")
@@ -156,6 +197,61 @@ public class ConcurrentLoginTest extends AbstractConcurrencyTest {
             log.info("*********************************************");
         }
     }
+
+
+    @Test
+    public void concurrentCodeReuseShouldFail() throws Throwable {
+        log.info("*********************************************");
+        long start = System.currentTimeMillis();
+
+
+        for (int i=0 ; i<10 ; i++) {
+            OAuthClient oauth1 = new OAuthClient();
+            oauth1.init(driver);
+            oauth1.clientId("client0");
+
+            OAuthClient.AuthorizationEndpointResponse resp = oauth1.doLogin("test-user@localhost", "password");
+            String code = resp.getCode();
+            Assert.assertNotNull(code);
+            String codeURL = driver.getCurrentUrl();
+
+
+            AtomicInteger codeToTokenSuccessCount = new AtomicInteger(0);
+            AtomicInteger codeToTokenErrorsCount = new AtomicInteger(0);
+
+            KeycloakRunnable codeToTokenTask = new KeycloakRunnable() {
+
+                @Override
+                public void run(int threadIndex, Keycloak keycloak, RealmResource realm) throws Throwable {
+                    log.infof("Trying to execute codeURL: %s, threadIndex: %d", codeURL, threadIndex);
+
+                    OAuthClient.AccessTokenResponse resp = oauth1.doAccessTokenRequest(code, "password");
+                    if (resp.getAccessToken() != null && resp.getError() == null) {
+                        codeToTokenSuccessCount.incrementAndGet();
+                    } else if (resp.getAccessToken() == null && resp.getError() != null) {
+                        codeToTokenErrorsCount.incrementAndGet();
+                    }
+                }
+
+            };
+
+            run(DEFAULT_THREADS, DEFAULT_THREADS, codeToTokenTask);
+
+            oauth1.openLogout();
+
+            // Code should be successfully exchanged for the token at max once. In some cases (EG. Cross-DC) it may not be even successfully exchanged
+            Assert.assertThat(codeToTokenSuccessCount.get(), Matchers.lessThanOrEqualTo(1));
+            Assert.assertThat(codeToTokenErrorsCount.get(), Matchers.greaterThanOrEqualTo(DEFAULT_THREADS - 1));
+
+            log.infof("Iteration %d passed successfully", i);
+        }
+
+        long end = System.currentTimeMillis() - start;
+        log.info("concurrentCodeReuseShouldFail took " + (end/1000) + "s");
+        log.info("*********************************************");
+
+    }
+
 
     protected String getPageContent(String url, CloseableHttpClient httpClient, HttpClientContext context) throws IOException {
         HttpGet request = new HttpGet(url);
@@ -229,13 +325,10 @@ public class ConcurrentLoginTest extends AbstractConcurrencyTest {
     }
 
     private static Map<String, String> getQueryFromUrl(String url) throws URISyntaxException {
-        Map<String, String> m = new HashMap<>();
-        List<NameValuePair> pairs = URLEncodedUtils.parse(new URI(url), "UTF-8");
-        for (NameValuePair p : pairs) {
-            m.put(p.getName(), p.getValue());
-        }
-        return m;
+        return URLEncodedUtils.parse(new URI(url), "UTF-8").stream()
+                .collect(Collectors.toMap(p -> p.getName(), p -> p.getValue()));
     }
+
 
     public class LoginTask implements KeycloakRunnable {
 
@@ -244,7 +337,12 @@ public class ConcurrentLoginTest extends AbstractConcurrencyTest {
                 @Override
                 protected OAuthClient initialValue() {
                     OAuthClient oauth1 = new OAuthClient();
-                    oauth1.init(adminClient, driver);
+                    oauth1.init(driver);
+
+                    // Add some randomness to state, nonce and redirectUri. Verify that login is successful and "state" and "nonce" will match
+                    oauth1.stateParamHardcoded(KeycloakModelUtils.generateId());
+                    oauth1.nonce(KeycloakModelUtils.generateId());
+                    oauth1.redirectUri(oauth.getRedirectUri() + "?some=" + new Random().nextInt(1024));
                     return oauth1;
                 }
             };
@@ -256,9 +354,10 @@ public class ConcurrentLoginTest extends AbstractConcurrencyTest {
         private final int retryCount;
         private final AtomicInteger[] retryHistogram;
         private final AtomicInteger totalInvocations = new AtomicInteger();
+        private final boolean sameClient;
         private final List<HttpClientContext> clientContexts;
 
-        public LoginTask(CloseableHttpClient httpClient, AtomicReference<String> userSessionId, int retryDelayMs, int retryCount, List<HttpClientContext> clientContexts) {
+        public LoginTask(CloseableHttpClient httpClient, AtomicReference<String> userSessionId, int retryDelayMs, int retryCount, boolean sameClient, List<HttpClientContext> clientContexts) {
             this.httpClient = httpClient;
             this.userSessionId = userSessionId;
             this.retryDelayMs = retryDelayMs;
@@ -267,12 +366,13 @@ public class ConcurrentLoginTest extends AbstractConcurrencyTest {
             for (int i = 0; i < retryHistogram.length; i ++) {
                 retryHistogram[i] = new AtomicInteger();
             }
+            this.sameClient = sameClient;
             this.clientContexts = clientContexts;
         }
 
         @Override
         public void run(int threadIndex, Keycloak keycloak, RealmResource realm) throws Throwable {
-            int i = clientIndex.getAndIncrement();
+            int i = sameClient ? 0 : clientIndex.getAndIncrement();
             OAuthClient oauth1 = oauthClient.get();
             oauth1.clientId("client" + i);
             log.infof("%d [%s]: Accessing login page for %s", threadIndex, Thread.currentThread().getName(), oauth1.getClientId());
@@ -285,7 +385,12 @@ public class ConcurrentLoginTest extends AbstractConcurrencyTest {
             Assert.assertThat(context.getRedirectLocations(), Matchers.notNullValue());
             Assert.assertThat(context.getRedirectLocations(), Matchers.not(Matchers.empty()));
             String currentUrl = context.getRedirectLocations().get(0).toString();
-            String code = getQueryFromUrl(currentUrl).get(OAuth2Constants.CODE);
+
+            Map<String, String> query = getQueryFromUrl(currentUrl);
+            String code = query.get(OAuth2Constants.CODE);
+            String state = query.get(OAuth2Constants.STATE);
+
+            Assert.assertEquals("Invalid state.", state, oauth1.getState());
 
             AtomicReference<OAuthClient.AccessTokenResponse> accessResRef = new AtomicReference<>();
             totalInvocations.incrementAndGet();
@@ -297,16 +402,25 @@ public class ConcurrentLoginTest extends AbstractConcurrencyTest {
             accessResRef.set(accessRes);
 
             // Refresh access + refresh token using refresh token
+            AtomicReference<OAuthClient.AccessTokenResponse> refreshResRef = new AtomicReference<>();
+
             int invocationIndex = Retry.execute(() -> {
                 OAuthClient.AccessTokenResponse refreshRes = oauth1.doRefreshTokenRequest(accessResRef.get().getRefreshToken(), "password");
                 Assert.assertEquals("AccessTokenResponse: client: " + oauth1.getClientId() + ", error: '" + refreshRes.getError() + "' desc: '" + refreshRes.getErrorDescription() + "'",
                   200, refreshRes.getStatusCode());
+
+                refreshResRef.set(refreshRes);
             }, retryCount, retryDelayMs);
 
             retryHistogram[invocationIndex].incrementAndGet();
 
+            AccessToken token = JsonSerialization.readValue(new JWSInput(accessResRef.get().getAccessToken()).getContent(), AccessToken.class);
+            Assert.assertEquals("Invalid nonce.", token.getNonce(), oauth1.getNonce());
+
+            AccessToken refreshedToken = JsonSerialization.readValue(new JWSInput(refreshResRef.get().getAccessToken()).getContent(), AccessToken.class);
+            Assert.assertEquals("Invalid nonce.", refreshedToken.getNonce(), oauth1.getNonce());
+
             if (userSessionId.get() == null) {
-                AccessToken token = oauth1.verifyToken(accessResRef.get().getAccessToken());
                 userSessionId.set(token.getSessionState());
             }
         }

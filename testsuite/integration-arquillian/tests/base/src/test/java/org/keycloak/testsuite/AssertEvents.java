@@ -36,7 +36,6 @@ import org.keycloak.representations.idm.UserRepresentation;
 import org.keycloak.representations.idm.UserSessionRepresentation;
 import org.keycloak.util.TokenUtil;
 
-import javax.ws.rs.core.Response;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -49,10 +48,13 @@ public class AssertEvents implements TestRule {
 
     public static final String DEFAULT_CLIENT_ID = "test-app";
     public static final String DEFAULT_IP_ADDRESS = "127.0.0.1";
+    public static final String DEFAULT_IP_ADDRESS_V6 = "0:0:0:0:0:0:0:1";
+    public static final String DEFAULT_IP_ADDRESS_V6_SHORT = "::1";
     public static final String DEFAULT_REALM = "test";
     public static final String DEFAULT_USERNAME = "test-user@localhost";
 
-    String defaultRedirectUri = "http://localhost:8180/auth/realms/master/app/auth";
+    public static final String DEFAULT_HTTP_REDIRECT_URI = "http://localhost:8180/auth/realms/master/app/auth";
+    public static final String DEFAULT_HTTPS_REDIRECT_URI = "https://localhost:8543/auth/realms/master/app/auth";
 
     private AbstractKeycloakTest context;
 
@@ -99,7 +101,7 @@ public class AssertEvents implements TestRule {
                 //.detail(Details.USERNAME, DEFAULT_USERNAME)
                 //.detail(Details.AUTH_METHOD, OIDCLoginProtocol.LOGIN_PROTOCOL)
                 //.detail(Details.AUTH_TYPE, AuthorizationEndpoint.CODE_AUTH_TYPE)
-                .detail(Details.REDIRECT_URI, defaultRedirectUri)
+                .detail(Details.REDIRECT_URI, Matchers.anyOf(Matchers.equalTo(DEFAULT_HTTP_REDIRECT_URI), Matchers.equalTo(DEFAULT_HTTPS_REDIRECT_URI)))
                 .detail(Details.CONSENT, Details.CONSENT_VALUE_NO_CONSENT_REQUIRED)
                 .session(isUUID());
     }
@@ -118,7 +120,7 @@ public class AssertEvents implements TestRule {
                 .detail(Details.CODE_ID, isCodeId())
                 .detail(Details.USERNAME, DEFAULT_USERNAME)
                 .detail(Details.AUTH_METHOD, "form")
-                .detail(Details.REDIRECT_URI, defaultRedirectUri)
+                .detail(Details.REDIRECT_URI, Matchers.anyOf(Matchers.equalTo(DEFAULT_HTTP_REDIRECT_URI), Matchers.equalTo(DEFAULT_HTTPS_REDIRECT_URI)))
                 .session(isUUID());
     }
 
@@ -144,8 +146,15 @@ public class AssertEvents implements TestRule {
 
     public ExpectedEvent expectLogout(String sessionId) {
         return expect(EventType.LOGOUT).client((String) null)
-                .detail(Details.REDIRECT_URI, defaultRedirectUri)
+                .detail(Details.REDIRECT_URI, Matchers.anyOf(Matchers.equalTo(DEFAULT_HTTP_REDIRECT_URI), Matchers.equalTo(DEFAULT_HTTPS_REDIRECT_URI)))
                 .session(sessionId);
+    }
+
+    public ExpectedEvent expectLogoutError(String error) {
+        return expect(EventType.LOGOUT_ERROR)
+                .error(error)
+                .client((String) null)
+                .user((String) null);
     }
 
     public ExpectedEvent expectRegister(String username, String email) {
@@ -155,7 +164,7 @@ public class AssertEvents implements TestRule {
                 .detail(Details.USERNAME, username)
                 .detail(Details.EMAIL, email)
                 .detail(Details.REGISTER_METHOD, "form")
-                .detail(Details.REDIRECT_URI, defaultRedirectUri);
+                .detail(Details.REDIRECT_URI, Matchers.anyOf(Matchers.equalTo(DEFAULT_HTTP_REDIRECT_URI), Matchers.equalTo(DEFAULT_HTTPS_REDIRECT_URI)));
     }
 
     public ExpectedEvent expectAccount(EventType event) {
@@ -167,7 +176,7 @@ public class AssertEvents implements TestRule {
                 .realm(defaultRealmId())
                 .client(DEFAULT_CLIENT_ID)
                 .user(defaultUserId())
-                .ipAddress(DEFAULT_IP_ADDRESS)
+                .ipAddress(CoreMatchers.anyOf(is(DEFAULT_IP_ADDRESS), is(DEFAULT_IP_ADDRESS_V6), is(DEFAULT_IP_ADDRESS_V6_SHORT)))
                 .session((String) null)
                 .event(event);
     }
@@ -177,6 +186,7 @@ public class AssertEvents implements TestRule {
         private Matcher<String> realmId;
         private Matcher<String> userId;
         private Matcher<String> sessionId;
+        private Matcher<String> ipAddress;
         private HashMap<String, Matcher<? super String>> details;
 
         public ExpectedEvent realm(Matcher<String> realmId) {
@@ -229,7 +239,12 @@ public class AssertEvents implements TestRule {
         }
 
         public ExpectedEvent ipAddress(String ipAddress) {
-            expected.setIpAddress(ipAddress);
+            this.ipAddress = CoreMatchers.equalTo(ipAddress);
+            return this;
+        }
+
+        public ExpectedEvent ipAddress(Matcher<String> ipAddress) {
+            this.ipAddress = ipAddress;
             return this;
         }
 
@@ -279,7 +294,7 @@ public class AssertEvents implements TestRule {
             Assert.assertThat("realm ID", actual.getRealmId(), is(realmId));
             Assert.assertThat("client ID", actual.getClientId(), is(expected.getClientId()));
             Assert.assertThat("error", actual.getError(), is(expected.getError()));
-            Assert.assertThat("ip address", actual.getIpAddress(), is(expected.getIpAddress()));
+            Assert.assertThat("ip address", actual.getIpAddress(), ipAddress);
             Assert.assertThat("user ID", actual.getUserId(), is(userId));
             Assert.assertThat("session ID", actual.getSessionId(), is(sessionId));
 

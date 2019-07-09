@@ -29,11 +29,9 @@ import org.keycloak.saml.processing.web.util.RedirectBindingUtil;
 import org.w3c.dom.Document;
 
 import javax.ws.rs.core.MultivaluedMap;
-import javax.ws.rs.core.UriBuilder;
 import javax.ws.rs.core.UriInfo;
 import java.security.PublicKey;
 import java.security.Signature;
-import java.security.cert.Certificate;
 import org.keycloak.dom.saml.v2.SAML2Object;
 import org.keycloak.dom.saml.v2.protocol.ExtensionsType;
 import org.keycloak.dom.saml.v2.protocol.RequestAbstractType;
@@ -42,6 +40,8 @@ import org.keycloak.rotation.HardcodedKeyLocator;
 import org.keycloak.rotation.KeyLocator;
 import org.keycloak.saml.processing.core.saml.v2.common.SAMLDocumentHolder;
 import org.keycloak.saml.processing.core.util.KeycloakKeySamlExtensionGenerator;
+import java.security.cert.CertificateException;
+import java.security.cert.X509Certificate;
 import org.w3c.dom.Element;
 
 /**
@@ -114,9 +114,12 @@ public class SamlProtocolUtils {
 
     private static PublicKey getPublicKey(String certPem) throws VerificationException {
         if (certPem == null) throw new VerificationException("Client does not have a public key.");
-        Certificate cert = null;
+        X509Certificate cert = null;
         try {
             cert = PemUtils.decodeCertificate(certPem);
+            cert.checkValidity();
+        } catch (CertificateException ex) {
+            throw new VerificationException("Certificate is not valid.");
         } catch (Exception e) {
             throw new VerificationException("Could not decode cert", e);
         }
@@ -128,6 +131,7 @@ public class SamlProtocolUtils {
         String request = encodedParams.getFirst(paramKey);
         String algorithm = encodedParams.getFirst(GeneralConstants.SAML_SIG_ALG_REQUEST_KEY);
         String signature = encodedParams.getFirst(GeneralConstants.SAML_SIGNATURE_REQUEST_KEY);
+        String relayState = encodedParams.getFirst(GeneralConstants.RELAY_STATE);
         String decodedAlgorithm = uriInformation.getQueryParameters(true).getFirst(GeneralConstants.SAML_SIG_ALG_REQUEST_KEY);
 
         if (request == null) throw new VerificationException("SAM was null");
@@ -139,13 +143,12 @@ public class SamlProtocolUtils {
         // Shibboleth doesn't sign the document for redirect binding.
         // todo maybe a flag?
 
-        UriBuilder builder = UriBuilder.fromPath("/")
-                .queryParam(paramKey, request);
+        StringBuilder rawQueryBuilder = new StringBuilder().append(paramKey).append("=").append(request);
         if (encodedParams.containsKey(GeneralConstants.RELAY_STATE)) {
-            builder.queryParam(GeneralConstants.RELAY_STATE, encodedParams.getFirst(GeneralConstants.RELAY_STATE));
+            rawQueryBuilder.append("&" + GeneralConstants.RELAY_STATE + "=").append(relayState);
         }
-        builder.queryParam(GeneralConstants.SAML_SIG_ALG_REQUEST_KEY, algorithm);
-        String rawQuery = builder.build().getRawQuery();
+        rawQueryBuilder.append("&" + GeneralConstants.SAML_SIG_ALG_REQUEST_KEY + "=").append(algorithm);
+        String rawQuery = rawQueryBuilder.toString();
 
         try {
             byte[] decodedSignature = RedirectBindingUtil.urlBase64Decode(signature);

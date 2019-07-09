@@ -21,6 +21,8 @@ import org.jboss.arquillian.test.api.ArquillianResource;
 import org.junit.Assert;
 import org.keycloak.common.util.KeycloakUriBuilder;
 import org.keycloak.testsuite.arquillian.SuiteContext;
+import org.keycloak.testsuite.util.OAuthClient;
+import org.openqa.selenium.By;
 import org.openqa.selenium.WebDriver;
 
 import java.net.URI;
@@ -37,6 +39,9 @@ public abstract class AbstractPage {
     @ArquillianResource
     protected WebDriver driver;
 
+    @ArquillianResource
+    protected OAuthClient oauth;
+
     public void assertCurrent() {
         String name = getClass().getSimpleName();
         Assert.assertTrue("Expected " + name + " but was " + driver.getTitle() + " (" + driver.getCurrentUrl() + ")",
@@ -45,7 +50,7 @@ public abstract class AbstractPage {
 
     protected URI getAuthServerRoot() {
         try {
-            return KeycloakUriBuilder.fromUri(suiteContext.getAuthServerInfo().getContextRoot().toURI()).path("/auth/").build();
+            return KeycloakUriBuilder.fromUri(suiteContext.getAuthServerInfo().getBrowserContextRoot().toURI()).path("/auth/").build();
         } catch (URISyntaxException e) {
             throw new RuntimeException(e);
         }
@@ -54,5 +59,10 @@ public abstract class AbstractPage {
     abstract public boolean isCurrent();
 
     abstract public void open() throws Exception;
+
+    public void setDriver(WebDriver driver) {
+        this.driver = driver ;
+        oauth.setDriver(driver);
+    }
 
 }

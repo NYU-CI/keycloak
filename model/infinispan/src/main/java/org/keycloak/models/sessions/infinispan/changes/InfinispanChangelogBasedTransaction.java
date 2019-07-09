@@ -27,42 +27,44 @@ import org.jboss.logging.Logger;
 import org.keycloak.models.AbstractKeycloakTransaction;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.RealmModel;
+import org.keycloak.models.sessions.infinispan.CacheDecorators;
 import org.keycloak.models.sessions.infinispan.entities.SessionEntity;
 import org.keycloak.models.sessions.infinispan.remotestore.RemoteCacheInvoker;
+import org.keycloak.models.sessions.infinispan.util.InfinispanUtil;
 
 /**
  * @author <a href="mailto:mposolda@redhat.com">Marek Posolda</a>
  */
-public class InfinispanChangelogBasedTransaction<S extends SessionEntity> extends AbstractKeycloakTransaction {
+public class InfinispanChangelogBasedTransaction<K, V extends SessionEntity> extends AbstractKeycloakTransaction {
 
     public static final Logger logger = Logger.getLogger(InfinispanChangelogBasedTransaction.class);
 
     private final KeycloakSession kcSession;
     private final String cacheName;
-    private final Cache<String, SessionEntityWrapper<S>> cache;
+    private final Cache<K, SessionEntityWrapper<V>> cache;
     private final RemoteCacheInvoker remoteCacheInvoker;
 
-    private final Map<String, SessionUpdatesList<S>> updates = new HashMap<>();
+    private final Map<K, SessionUpdatesList<V>> updates = new HashMap<>();
 
-    public InfinispanChangelogBasedTransaction(KeycloakSession kcSession, String cacheName, Cache<String, SessionEntityWrapper<S>> cache, RemoteCacheInvoker remoteCacheInvoker) {
+    public InfinispanChangelogBasedTransaction(KeycloakSession kcSession, Cache<K, SessionEntityWrapper<V>> cache, RemoteCacheInvoker remoteCacheInvoker) {
         this.kcSession = kcSession;
-        this.cacheName = cacheName;
+        this.cacheName = cache.getName();
         this.cache = cache;
         this.remoteCacheInvoker = remoteCacheInvoker;
     }
 
 
-    public void addTask(String key, SessionUpdateTask<S> task) {
-        SessionUpdatesList<S> myUpdates = updates.get(key);
+    public void addTask(K key, SessionUpdateTask<V> task) {
+        SessionUpdatesList<V> myUpdates = updates.get(key);
         if (myUpdates == null) {
             // Lookup entity from cache
-            SessionEntityWrapper<S> wrappedEntity = cache.get(key);
+            SessionEntityWrapper<V> wrappedEntity = cache.get(key);
             if (wrappedEntity == null) {
                 logger.warnf("Not present cache item for key %s", key);
                 return;
             }
 
-            RealmModel realm = kcSession.realms().getRealm(wrappedEntity.getEntity().getRealm());
+            RealmModel realm = kcSession.realms().getRealm(wrappedEntity.getEntity().getRealmId());
 
             myUpdates = new SessionUpdatesList<>(realm, wrappedEntity);
             updates.put(key, myUpdates);
@@ -75,14 +77,14 @@ public class InfinispanChangelogBasedTransaction<S extends SessionEntity> extend
 
 
     // Create entity and new version for it
-    public void addTask(String key, SessionUpdateTask<S> task, S entity) {
+    public void addTask(K key, SessionUpdateTask<V> task, V entity) {
         if (entity == null) {
             throw new IllegalArgumentException("Null entity not allowed");
         }
 
-        RealmModel realm = kcSession.realms().getRealm(entity.getRealm());
-        SessionEntityWrapper<S> wrappedEntity = new SessionEntityWrapper<>(entity);
-        SessionUpdatesList<S> myUpdates = new SessionUpdatesList<>(realm, wrappedEntity);
+        RealmModel realm = kcSession.realms().getRealm(entity.getRealmId());
+        SessionEntityWrapper<V> wrappedEntity = new SessionEntityWrapper<>(entity);
+        SessionUpdatesList<V> myUpdates = new SessionUpdatesList<>(realm, wrappedEntity);
         updates.put(key, myUpdates);
 
         // Run the update now, so reader in same transaction can see it
@@ -91,19 +93,19 @@ public class InfinispanChangelogBasedTransaction<S extends SessionEntity> extend
     }
 
 
-    public void reloadEntityInCurrentTransaction(RealmModel realm, String key, SessionEntityWrapper<S> entity) {
+    public void reloadEntityInCurrentTransaction(RealmModel realm, K key, SessionEntityWrapper<V> entity) {
         if (entity == null) {
             throw new IllegalArgumentException("Null entity not allowed");
         }
 
-        SessionEntityWrapper<S> latestEntity = cache.get(key);
+        SessionEntityWrapper<V> latestEntity = cache.get(key);
         if (latestEntity == null) {
             return;
         }
 
-        SessionUpdatesList<S> newUpdates = new SessionUpdatesList<>(realm, latestEntity);
+        SessionUpdatesList<V> newUpdates = new SessionUpdatesList<>(realm, latestEntity);
 
-        SessionUpdatesList<S> existingUpdates = updates.get(key);
+        SessionUpdatesList<V> existingUpdates = updates.get(key);
         if (existingUpdates != null) {
             newUpdates.setUpdateTasks(existingUpdates.getUpdateTasks());
         }
@@ -112,22 +114,22 @@ public class InfinispanChangelogBasedTransaction<S extends SessionEntity> extend
     }
 
 
-    public SessionEntityWrapper<S> get(String key) {
-        SessionUpdatesList<S> myUpdates = updates.get(key);
+    public SessionEntityWrapper<V> get(K key) {
+        SessionUpdatesList<V> myUpdates = updates.get(key);
         if (myUpdates == null) {
-            SessionEntityWrapper<S> wrappedEntity = cache.get(key);
+            SessionEntityWrapper<V> wrappedEntity = cache.get(key);
             if (wrappedEntity == null) {
                 return null;
             }
 
-            RealmModel realm = kcSession.realms().getRealm(wrappedEntity.getEntity().getRealm());
+            RealmModel realm = kcSession.realms().getRealm(wrappedEntity.getEntity().getRealmId());
 
             myUpdates = new SessionUpdatesList<>(realm, wrappedEntity);
             updates.put(key, myUpdates);
 
             return wrappedEntity;
         } else {
-            S entity = myUpdates.getEntityWrapper().getEntity();
+            V entity = myUpdates.getEntityWrapper().getEntity();
 
             // If entity is scheduled for remove, we don't return it.
             boolean scheduledForRemove = myUpdates.getUpdateTasks().stream().filter((SessionUpdateTask task) -> {
@@ -143,13 +145,13 @@ public class InfinispanChangelogBasedTransaction<S extends SessionEntity> extend
 
     @Override
     protected void commitImpl() {
-        for (Map.Entry<String, SessionUpdatesList<S>> entry : updates.entrySet()) {
-            SessionUpdatesList<S> sessionUpdates = entry.getValue();
-            SessionEntityWrapper<S> sessionWrapper = sessionUpdates.getEntityWrapper();
+        for (Map.Entry<K, SessionUpdatesList<V>> entry : updates.entrySet()) {
+            SessionUpdatesList<V> sessionUpdates = entry.getValue();
+            SessionEntityWrapper<V> sessionWrapper = sessionUpdates.getEntityWrapper();
 
             RealmModel realm = sessionUpdates.getRealm();
 
-            MergedUpdate<S> merged = MergedUpdate.computeUpdate(sessionUpdates.getUpdateTasks(), sessionWrapper);
+            MergedUpdate<V> merged = MergedUpdate.computeUpdate(sessionUpdates.getUpdateTasks(), sessionWrapper);
 
             if (merged != null) {
                 // Now run the operation in our cluster
@@ -162,8 +164,8 @@ public class InfinispanChangelogBasedTransaction<S extends SessionEntity> extend
     }
 
 
-    private void runOperationInCluster(String key, MergedUpdate<S> task,  SessionEntityWrapper<S> sessionWrapper) {
-        S session = sessionWrapper.getEntity();
+    private void runOperationInCluster(K key, MergedUpdate<V> task,  SessionEntityWrapper<V> sessionWrapper) {
+        V session = sessionWrapper.getEntity();
         SessionUpdateTask.CacheOperation operation = task.getOperation(session);
 
         // Don't need to run update of underlying entity. Local updates were already run
@@ -172,19 +174,24 @@ public class InfinispanChangelogBasedTransaction<S extends SessionEntity> extend
         switch (operation) {
             case REMOVE:
                 // Just remove it
-                cache
+                CacheDecorators.skipCacheStore(cache)
                         .getAdvancedCache().withFlags(Flag.IGNORE_RETURN_VALUES)
                         .remove(key);
                 break;
             case ADD:
-                cache
+                CacheDecorators.skipCacheStore(cache)
                         .getAdvancedCache().withFlags(Flag.IGNORE_RETURN_VALUES)
                         .put(key, sessionWrapper, task.getLifespanMs(), TimeUnit.MILLISECONDS);
                 break;
             case ADD_IF_ABSENT:
-                SessionEntityWrapper existing = cache.putIfAbsent(key, sessionWrapper);
+                SessionEntityWrapper<V> existing = CacheDecorators.skipCacheStore(cache).putIfAbsent(key, sessionWrapper);
                 if (existing != null) {
-                    throw new IllegalStateException("There is already existing value in cache for key " + key);
+                    logger.debugf("Existing entity in cache for key: %s . Will update it", key);
+
+                    // Apply updates on the existing entity and replace it
+                    task.runUpdate(existing.getEntity());
+
+                    replace(key, task, existing);
                 }
                 break;
             case REPLACE:
@@ -197,19 +204,24 @@ public class InfinispanChangelogBasedTransaction<S extends SessionEntity> extend
     }
 
 
-    private void replace(String key, MergedUpdate<S> task, SessionEntityWrapper<S> oldVersionEntity) {
+    private void replace(K key, MergedUpdate<V> task, SessionEntityWrapper<V> oldVersionEntity) {
         boolean replaced = false;
-        S session = oldVersionEntity.getEntity();
+        int iteration = 0;
+        V session = oldVersionEntity.getEntity();
 
-        while (!replaced) {
-            SessionEntityWrapper<S> newVersionEntity = generateNewVersionAndWrapEntity(session, oldVersionEntity.getLocalMetadata());
+        while (!replaced && iteration < InfinispanUtil.MAXIMUM_REPLACE_RETRIES) {
+            iteration++;
+
+            SessionEntityWrapper<V> newVersionEntity = generateNewVersionAndWrapEntity(session, oldVersionEntity.getLocalMetadata());
 
             // Atomic cluster-aware replace
-            replaced = cache.replace(key, oldVersionEntity, newVersionEntity);
+            replaced = CacheDecorators.skipCacheStore(cache).replace(key, oldVersionEntity, newVersionEntity);
 
             // Replace fail. Need to load latest entity from cache, apply updates again and try to replace in cache again
             if (!replaced) {
-                logger.debugf("Replace failed for entity: %s . Will try again", key);
+                if (logger.isDebugEnabled()) {
+                    logger.debugf("Replace failed for entity: %s, old version %s, new version %s. Will try again", key, oldVersionEntity.getVersion(), newVersionEntity.getVersion());
+                }
 
                 oldVersionEntity = cache.get(key);
 
@@ -223,9 +235,13 @@ public class InfinispanChangelogBasedTransaction<S extends SessionEntity> extend
                 task.runUpdate(session);
             } else {
                 if (logger.isTraceEnabled()) {
-                    logger.tracef("Replace SUCCESS for entity: %s . old version: %d, new version: %d", key, oldVersionEntity.getVersion(), newVersionEntity.getVersion());
+                    logger.tracef("Replace SUCCESS for entity: %s . old version: %s, new version: %s", key, oldVersionEntity.getVersion(), newVersionEntity.getVersion());
                 }
             }
+        }
+
+        if (!replaced) {
+            logger.warnf("Failed to replace entity '%s' in cache '%s'", key, cache.getName());
         }
 
     }
@@ -235,7 +251,7 @@ public class InfinispanChangelogBasedTransaction<S extends SessionEntity> extend
     protected void rollbackImpl() {
     }
 
-    private SessionEntityWrapper<S> generateNewVersionAndWrapEntity(S entity, Map<String, String> localMetadata) {
+    private SessionEntityWrapper<V> generateNewVersionAndWrapEntity(V entity, Map<String, String> localMetadata) {
         return new SessionEntityWrapper<>(localMetadata, entity);
     }
 

@@ -17,6 +17,7 @@
 
 package org.keycloak.testsuite.forms;
 
+import org.hamcrest.Matchers;
 import org.jboss.arquillian.graphene.page.Page;
 import org.junit.Before;
 import org.junit.Rule;
@@ -57,6 +58,11 @@ public class MultipleTabsLoginTest extends AbstractTestRealmKeycloakTest {
 
     @Override
     public void configureTestRealm(RealmRepresentation testRealm) {
+    }
+
+    @Override
+    protected boolean modifyRealmForSSL() {
+        return true;
     }
 
     @Before
@@ -114,22 +120,6 @@ public class MultipleTabsLoginTest extends AbstractTestRealmKeycloakTest {
     @Rule
     public AssertEvents events = new AssertEvents(this);
 
-
-    // Test for scenario when user is logged into JS application in 2 browser tabs. Then click "logout" in tab1 and he is logged-out from both tabs (tab2 is logged-out automatically due to session iframe few seconds later)
-    // Now both browser tabs show the 1st login screen and we need to make sure that actionURL (code with execution) is valid on both tabs, so user won't have error page when he tries to login from tab1
-    @Test
-    public void openMultipleTabs() {
-        oauth.openLoginForm();
-        loginPage.assertCurrent();
-        String actionUrl1 = ActionURIUtils.getActionURIFromPageSource(driver.getPageSource());
-
-        oauth.openLoginForm();
-        loginPage.assertCurrent();
-        String actionUrl2 = ActionURIUtils.getActionURIFromPageSource(driver.getPageSource());
-
-        Assert.assertEquals(actionUrl1, actionUrl2);
-
-    }
 
     @Test
     public void multipleTabsParallelLoginTest() {
@@ -281,5 +271,102 @@ public class MultipleTabsLoginTest extends AbstractTestRealmKeycloakTest {
     }
 
 
+    // KEYCLOAK-5797
+    @Test
+    public void loginWithDifferentClients() throws Exception {
+       String redirectUri = String.format("%s://localhost:%s/foo/bar/baz", AUTH_SERVER_SCHEME, AUTH_SERVER_PORT);
+       // Open tab1 and start login here
+       oauth.openLoginForm();
+       loginPage.assertCurrent();
+       loginPage.login("login-test", "bad-password");
+       String tab1Url = driver.getCurrentUrl();
 
+       // Go to tab2 and start login with different client "root-url-client"
+       oauth.clientId("root-url-client");
+        oauth.redirectUri(redirectUri);
+        oauth.openLoginForm();
+        loginPage.assertCurrent();
+        String tab2Url = driver.getCurrentUrl();
+
+        // Go back to tab1 and finish login here
+        driver.navigate().to(tab1Url);
+        loginPage.login("login-test", "password");
+        updatePasswordPage.changePassword("password", "password");
+        updateProfilePage.update("John", "Doe3", "john@doe3.com");
+
+        // Assert I am redirected to the appPage in tab1
+        appPage.assertCurrent();
+
+        // Go back to tab2 and finish login here. Should be on the root-url-client page
+        driver.navigate().to(tab2Url);
+        String currentUrl = driver.getCurrentUrl();
+        Assert.assertThat(currentUrl, Matchers.startsWith(redirectUri));
+    }
+
+
+    // KEYCLOAK-5938
+    @Test
+    public void loginWithSameClientDifferentStatesLoginInTab1() throws Exception {
+        String redirectUri1 = String.format("%s://localhost:%s/auth/realms/master/app/auth/suffix1", AUTH_SERVER_SCHEME, AUTH_SERVER_PORT);
+        String redirectUri2 = String.format("%s://localhost:%s/auth/realms/master/app/auth/suffix2", AUTH_SERVER_SCHEME, AUTH_SERVER_PORT);
+        // Open tab1 and start login here
+        oauth.stateParamHardcoded("state1");
+        oauth.redirectUri(redirectUri1);
+        oauth.openLoginForm();
+        loginPage.assertCurrent();
+        loginPage.login("login-test", "bad-password");
+        String tab1Url = driver.getCurrentUrl();
+
+        // Go to tab2 and start login with different client "root-url-client"
+        oauth.stateParamHardcoded("state2");
+        oauth.redirectUri(redirectUri2);
+        oauth.openLoginForm();
+        loginPage.assertCurrent();
+        String tab2Url = driver.getCurrentUrl();
+
+        // Go back to tab1 and finish login here
+        driver.navigate().to(tab1Url);
+        loginPage.login("login-test", "password");
+        updatePasswordPage.changePassword("password", "password");
+        updateProfilePage.update("John", "Doe3", "john@doe3.com");
+
+        // Assert I am redirected to the appPage in tab1 and have state corresponding to tab1
+        appPage.assertCurrent();
+        String currentUrl = driver.getCurrentUrl();
+        Assert.assertThat(currentUrl, Matchers.startsWith(redirectUri1));
+        Assert.assertTrue(currentUrl.contains("state1"));
+    }
+
+
+    // KEYCLOAK-5938
+    @Test
+    public void loginWithSameClientDifferentStatesLoginInTab2() throws Exception {
+        String redirectUri1 = String.format("%s://localhost:%s/auth/realms/master/app/auth/suffix1", AUTH_SERVER_SCHEME, AUTH_SERVER_PORT);
+        String redirectUri2 = String.format("%s://localhost:%s/auth/realms/master/app/auth/suffix2", AUTH_SERVER_SCHEME, AUTH_SERVER_PORT);
+        // Open tab1 and start login here
+        oauth.stateParamHardcoded("state1");
+        oauth.redirectUri(redirectUri1);
+        oauth.openLoginForm();
+        loginPage.assertCurrent();
+        loginPage.login("login-test", "bad-password");
+        String tab1Url = driver.getCurrentUrl();
+
+        // Go to tab2 and start login with different client "root-url-client"
+        oauth.stateParamHardcoded("state2");
+        oauth.redirectUri(redirectUri2);
+        oauth.openLoginForm();
+        loginPage.assertCurrent();
+        String tab2Url = driver.getCurrentUrl();
+
+        // Continue in tab2 and finish login here
+        loginPage.login("login-test", "password");
+        updatePasswordPage.changePassword("password", "password");
+        updateProfilePage.update("John", "Doe3", "john@doe3.com");
+
+        // Assert I am redirected to the appPage in tab2 and have state corresponding to tab2
+        appPage.assertCurrent();
+        String currentUrl = driver.getCurrentUrl();
+        Assert.assertThat(currentUrl, Matchers.startsWith(redirectUri2));
+        Assert.assertTrue(currentUrl.contains("state2"));
+    }
 }

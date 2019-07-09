@@ -48,9 +48,7 @@ public class PersistentAuthenticatedClientSessionAdapter implements Authenticate
         data.setAction(clientSession.getAction());
         data.setAuthMethod(clientSession.getProtocol());
         data.setNotes(clientSession.getNotes());
-        data.setProtocolMappers(clientSession.getProtocolMappers());
         data.setRedirectUri(clientSession.getRedirectUri());
-        data.setRoles(clientSession.getRoles());
 
         model = new PersistentClientSessionModel();
         model.setClientId(clientSession.getClient().getId());
@@ -116,6 +114,10 @@ public class PersistentAuthenticatedClientSessionAdapter implements Authenticate
     }
 
     @Override
+    public void detachFromUserSession() {
+        setUserSession(null);
+    }
+
     public void setUserSession(UserSessionModel userSession) {
         this.userSession = userSession;
     }
@@ -141,6 +143,26 @@ public class PersistentAuthenticatedClientSessionAdapter implements Authenticate
     }
 
     @Override
+    public String getCurrentRefreshToken() {
+        return null; // Information not persisted.
+    }
+
+    @Override
+    public void setCurrentRefreshToken(String currentRefreshToken) {
+        // Information not persisted.
+    }
+
+    @Override
+    public int getCurrentRefreshTokenUseCount() {
+        return 0; // Information not persisted.
+    }
+
+    @Override
+    public void setCurrentRefreshTokenUseCount(int currentRefreshTokenUseCount) {
+        // Information not persisted.
+    }
+
+    @Override
     public String getAction() {
         return getData().getAction();
     }
@@ -148,26 +170,6 @@ public class PersistentAuthenticatedClientSessionAdapter implements Authenticate
     @Override
     public void setAction(String action) {
         getData().setAction(action);
-    }
-
-    @Override
-    public Set<String> getRoles() {
-        return getData().getRoles();
-    }
-
-    @Override
-    public void setRoles(Set<String> roles) {
-        getData().setRoles(roles);
-    }
-
-    @Override
-    public Set<String> getProtocolMappers() {
-        return getData().getProtocolMappers();
-    }
-
-    @Override
-    public void setProtocolMappers(Set<String> protocolMappers) {
-        getData().setProtocolMappers(protocolMappers);
     }
 
     @Override
@@ -232,12 +234,6 @@ public class PersistentAuthenticatedClientSessionAdapter implements Authenticate
         @JsonProperty("redirectUri")
         private String redirectUri;
 
-        @JsonProperty("protocolMappers")
-        private Set<String> protocolMappers;
-
-        @JsonProperty("roles")
-        private Set<String> roles;
-
         @JsonProperty("notes")
         private Map<String, String> notes;
 
@@ -251,6 +247,10 @@ public class PersistentAuthenticatedClientSessionAdapter implements Authenticate
         private Map<String, Object> executionStatus;
         @JsonProperty("requiredActions")
         private Set<String> requiredActions;
+        @JsonProperty("protocolMappers")
+        private Set<String> protocolMappers;
+        @JsonProperty("roles")
+        private Set<String> roles;
 
 
         public String getAuthMethod() {
@@ -267,22 +267,6 @@ public class PersistentAuthenticatedClientSessionAdapter implements Authenticate
 
         public void setRedirectUri(String redirectUri) {
             this.redirectUri = redirectUri;
-        }
-
-        public Set<String> getProtocolMappers() {
-            return protocolMappers;
-        }
-
-        public void setProtocolMappers(Set<String> protocolMappers) {
-            this.protocolMappers = protocolMappers;
-        }
-
-        public Set<String> getRoles() {
-            return roles;
-        }
-
-        public void setRoles(Set<String> roles) {
-            this.roles = roles;
         }
 
         public Map<String, String> getNotes() {
@@ -323,6 +307,22 @@ public class PersistentAuthenticatedClientSessionAdapter implements Authenticate
 
         public void setRequiredActions(Set<String> requiredActions) {
             this.requiredActions = requiredActions;
+        }
+
+        public Set<String> getProtocolMappers() {
+            return protocolMappers;
+        }
+
+        public void setProtocolMappers(Set<String> protocolMappers) {
+            this.protocolMappers = protocolMappers;
+        }
+
+        public Set<String> getRoles() {
+            return roles;
+        }
+
+        public void setRoles(Set<String> roles) {
+            this.roles = roles;
         }
     }
 }

@@ -17,6 +17,8 @@
 
 package org.keycloak.models.jpa.entities;
 
+import org.hibernate.annotations.Nationalized;
+
 import javax.persistence.Access;
 import javax.persistence.AccessType;
 import javax.persistence.CascadeType;
@@ -61,8 +63,10 @@ public class ClientEntity {
     @Column(name="ID", length = 36)
     @Access(AccessType.PROPERTY) // we do this because relationships often fetch id, but not entity.  This avoids an extra SQL
     private String id;
+    @Nationalized
     @Column(name = "NAME")
     private String name;
+    @Nationalized
     @Column(name = "DESCRIPTION")
     private String description;
     @Column(name = "CLIENT_ID")
@@ -87,19 +91,6 @@ public class ClientEntity {
     private boolean fullScopeAllowed;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "CLIENT_TEMPLATE_ID")
-    protected ClientTemplateEntity clientTemplate;
-
-    @Column(name="USE_TEMPLATE_CONFIG")
-    private boolean useTemplateConfig;
-
-    @Column(name="USE_TEMPLATE_SCOPE")
-    private boolean useTemplateScope;
-
-    @Column(name="USE_TEMPLATE_MAPPERS")
-    private boolean useTemplateMappers;
-
-    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "REALM_ID")
     protected RealmEntity realm;
 
@@ -113,14 +104,14 @@ public class ClientEntity {
     @CollectionTable(name = "REDIRECT_URIS", joinColumns={ @JoinColumn(name="CLIENT_ID") })
     protected Set<String> redirectUris = new HashSet<String>();
 
-    @ElementCollection
-    @MapKeyColumn(name="NAME")
-    @Column(name="VALUE", length = 2048)
-    @CollectionTable(name="CLIENT_ATTRIBUTES", joinColumns={ @JoinColumn(name="CLIENT_ID") })
-    protected Map<String, String> attributes = new HashMap<String, String>();
+    @OneToMany(cascade ={CascadeType.REMOVE}, orphanRemoval = true, mappedBy = "client")
+    protected Collection<ClientAttributeEntity> attributes = new ArrayList<>();
 
-    @OneToMany(fetch = FetchType.LAZY, mappedBy = "client", cascade = CascadeType.REMOVE)
-    Collection<ClientIdentityProviderMappingEntity> identityProviders = new ArrayList<ClientIdentityProviderMappingEntity>();
+    @ElementCollection
+    @MapKeyColumn(name="BINDING_NAME")
+    @Column(name="FLOW_ID", length = 4000)
+    @CollectionTable(name="CLIENT_AUTH_FLOW_BINDINGS", joinColumns={ @JoinColumn(name="CLIENT_ID") })
+    protected Map<String, String> authFlowBindings = new HashMap<String, String>();
 
     @OneToMany(cascade ={CascadeType.REMOVE}, orphanRemoval = true, mappedBy = "client")
     Collection<ProtocolMapperEntity> protocolMappers = new ArrayList<ProtocolMapperEntity>();
@@ -284,12 +275,20 @@ public class ClientEntity {
         this.fullScopeAllowed = fullScopeAllowed;
     }
 
-    public Map<String, String> getAttributes() {
+    public Collection<ClientAttributeEntity> getAttributes() {
         return attributes;
     }
 
-    public void setAttributes(Map<String, String> attributes) {
+    public void setAttributes(Collection<ClientAttributeEntity> attributes) {
         this.attributes = attributes;
+    }
+
+    public Map<String, String> getAuthFlowBindings() {
+        return authFlowBindings;
+    }
+
+    public void setAuthFlowBindings(Map<String, String> authFlowBindings) {
+        this.authFlowBindings = authFlowBindings;
     }
 
     public String getProtocol() {
@@ -306,14 +305,6 @@ public class ClientEntity {
 
     public void setFrontchannelLogout(boolean frontchannelLogout) {
         this.frontchannelLogout = frontchannelLogout;
-    }
-
-    public Collection<ClientIdentityProviderMappingEntity> getIdentityProviders() {
-        return this.identityProviders;
-    }
-
-    public void setIdentityProviders(Collection<ClientIdentityProviderMappingEntity> identityProviders) {
-        this.identityProviders = identityProviders;
     }
 
     public Collection<ProtocolMapperEntity> getProtocolMappers() {
@@ -426,38 +417,6 @@ public class ClientEntity {
 
     public void setRegisteredNodes(Map<String, Integer> registeredNodes) {
         this.registeredNodes = registeredNodes;
-    }
-
-    public ClientTemplateEntity getClientTemplate() {
-        return clientTemplate;
-    }
-
-    public void setClientTemplate(ClientTemplateEntity clientTemplate) {
-        this.clientTemplate = clientTemplate;
-    }
-
-    public boolean isUseTemplateConfig() {
-        return useTemplateConfig;
-    }
-
-    public void setUseTemplateConfig(boolean useTemplateConfig) {
-        this.useTemplateConfig = useTemplateConfig;
-    }
-
-    public boolean isUseTemplateScope() {
-        return useTemplateScope;
-    }
-
-    public void setUseTemplateScope(boolean useTemplateScope) {
-        this.useTemplateScope = useTemplateScope;
-    }
-
-    public boolean isUseTemplateMappers() {
-        return useTemplateMappers;
-    }
-
-    public void setUseTemplateMappers(boolean useTemplateMappers) {
-        this.useTemplateMappers = useTemplateMappers;
     }
 
     public Set<RoleEntity> getScopeMapping() {

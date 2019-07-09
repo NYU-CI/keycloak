@@ -22,12 +22,10 @@ import org.keycloak.component.ComponentModel;
 import org.keycloak.provider.ProviderEvent;
 import org.keycloak.storage.UserStorageProvider;
 import org.keycloak.storage.UserStorageProviderModel;
+import org.keycloak.storage.client.ClientStorageProvider;
+import org.keycloak.storage.client.ClientStorageProviderModel;
 
-import java.util.Collections;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 
 /**
  * @author <a href="mailto:bill@burkecentral.com">Bill Burke</a>
@@ -36,6 +34,7 @@ import java.util.Set;
 public interface RealmModel extends RoleContainerModel {
     interface RealmCreationEvent extends ProviderEvent {
         RealmModel getCreatedRealm();
+        KeycloakSession getKeycloakSession();
     }
 
     interface RealmPostCreateEvent extends ProviderEvent {
@@ -113,6 +112,10 @@ public interface RealmModel extends RoleContainerModel {
 
     void setEditUsernameAllowed(boolean editUsernameAllowed);
 
+    boolean isUserManagedAccessAllowed();
+
+    void setUserManagedAccessAllowed(boolean userManagedAccessAllowed);
+
     void setAttribute(String name, String value);
     void setAttribute(String name, Boolean value);
     void setAttribute(String name, Integer value);
@@ -147,11 +150,11 @@ public interface RealmModel extends RoleContainerModel {
     boolean isVerifyEmail();
 
     void setVerifyEmail(boolean verifyEmail);
-    
+
     boolean isLoginWithEmailAllowed();
 
     void setLoginWithEmailAllowed(boolean loginWithEmailAllowed);
-    
+
     boolean isDuplicateEmailsAllowed();
 
     void setDuplicateEmailsAllowed(boolean duplicateEmailsAllowed);
@@ -160,8 +163,14 @@ public interface RealmModel extends RoleContainerModel {
 
     void setResetPasswordAllowed(boolean resetPasswordAllowed);
 
+    String getDefaultSignatureAlgorithm();
+    void setDefaultSignatureAlgorithm(String defaultSignatureAlgorithm);
+
     boolean isRevokeRefreshToken();
     void setRevokeRefreshToken(boolean revokeRefreshToken);
+
+    int getRefreshTokenMaxReuse();
+    void setRefreshTokenMaxReuse(int revokeRefreshTokenCount);
 
     int getSsoSessionIdleTimeout();
     void setSsoSessionIdleTimeout(int seconds);
@@ -169,10 +178,23 @@ public interface RealmModel extends RoleContainerModel {
     int getSsoSessionMaxLifespan();
     void setSsoSessionMaxLifespan(int seconds);
 
+    int getSsoSessionIdleTimeoutRememberMe();
+    void setSsoSessionIdleTimeoutRememberMe(int seconds);
+
+    int getSsoSessionMaxLifespanRememberMe();
+    void setSsoSessionMaxLifespanRememberMe(int seconds);
+
     int getOfflineSessionIdleTimeout();
     void setOfflineSessionIdleTimeout(int seconds);
 
     int getAccessTokenLifespan();
+
+    // KEYCLOAK-7688 Offline Session Max for Offline Token
+    boolean isOfflineSessionMaxLifespanEnabled();
+    void setOfflineSessionMaxLifespanEnabled(boolean offlineSessionMaxLifespanEnabled);
+
+    int getOfflineSessionMaxLifespan();
+    void setOfflineSessionMaxLifespan(int seconds);
 
     void setAccessTokenLifespan(int seconds);
 
@@ -187,6 +209,13 @@ public interface RealmModel extends RoleContainerModel {
 
     void setAccessCodeLifespanUserAction(int seconds);
 
+    /**
+     * This method will return a map with all the lifespans available
+     * or an empty map, but never null.
+     * @return map with user action token lifespans
+     */
+    Map<String, Integer> getUserActionTokenLifespans();
+
     int getAccessCodeLifespanLogin();
 
     void setAccessCodeLifespanLogin(int seconds);
@@ -196,6 +225,9 @@ public interface RealmModel extends RoleContainerModel {
 
     int getActionTokenGeneratedByUserLifespan();
     void setActionTokenGeneratedByUserLifespan(int seconds);
+
+    int getActionTokenGeneratedByUserLifespan(String actionTokenType);
+    void setActionTokenGeneratedByUserLifespan(String actionTokenType, Integer seconds);
 
     List<RequiredCredentialModel> getRequiredCredentials();
 
@@ -332,6 +364,16 @@ public interface RealmModel extends RoleContainerModel {
         return list;
     }
 
+    default
+    List<ClientStorageProviderModel> getClientStorageProviders() {
+        List<ClientStorageProviderModel> list = new LinkedList<>();
+        for (ComponentModel component : getComponents(getId(), ClientStorageProvider.class.getName())) {
+            list.add(new ClientStorageProviderModel(component));
+        }
+        Collections.sort(list, ClientStorageProviderModel.comparator);
+        return list;
+    }
+
     String getLoginTheme();
 
     void setLoginTheme(String name);
@@ -404,18 +446,26 @@ public interface RealmModel extends RoleContainerModel {
 
     GroupModel getGroupById(String id);
     List<GroupModel> getGroups();
+    Long getGroupsCount(Boolean onlyTopGroups);
+    Long getGroupsCountByNameContaining(String search);
     List<GroupModel> getTopLevelGroups();
+    List<GroupModel> getTopLevelGroups(Integer first, Integer max);
+    List<GroupModel> searchForGroupByName(String search, Integer first, Integer max);
     boolean removeGroup(GroupModel group);
     void moveGroup(GroupModel group, GroupModel toParent);
 
-    List<ClientTemplateModel> getClientTemplates();
+    List<ClientScopeModel> getClientScopes();
 
-    ClientTemplateModel addClientTemplate(String name);
+    ClientScopeModel addClientScope(String name);
 
-    ClientTemplateModel addClientTemplate(String id, String name);
+    ClientScopeModel addClientScope(String id, String name);
 
-    boolean removeClientTemplate(String id);
+    boolean removeClientScope(String id);
 
-    ClientTemplateModel getClientTemplateById(String id);
+    ClientScopeModel getClientScopeById(String id);
+
+    void addDefaultClientScope(ClientScopeModel clientScope, boolean defaultScope);
+    void removeDefaultClientScope(ClientScopeModel clientScope);
+    List<ClientScopeModel> getDefaultClientScopes(boolean defaultScope);
 
 }

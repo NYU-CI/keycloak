@@ -19,7 +19,7 @@ package org.keycloak.testsuite.crossdc;
 import org.keycloak.admin.client.resource.RealmResource;
 import org.keycloak.events.log.JBossLoggingEventListenerProviderFactory;
 import org.keycloak.representations.idm.RealmRepresentation;
-import org.keycloak.testsuite.Retry;
+import org.keycloak.common.util.Retry;
 import org.keycloak.testsuite.arquillian.InfinispanStatistics;
 import org.keycloak.testsuite.events.EventsListenerProviderFactory;
 import org.keycloak.testsuite.util.TestCleanup;
@@ -32,6 +32,7 @@ import java.util.function.Function;
 import org.hamcrest.Matcher;
 import org.junit.Before;
 import static org.junit.Assert.assertThat;
+import org.keycloak.representations.idm.ClientRepresentation;
 
 /**
  *
@@ -47,13 +48,17 @@ public abstract class AbstractAdminCrossDCTest extends AbstractCrossDCTest {
 
     @Override
     public void configureTestRealm(RealmRepresentation testRealm) {
-        findTestApp(testRealm).setDirectAccessGrantsEnabled(true);
+        log.debug("Configuring test realm '" + testRealm.getRealm() + "'. Enabling direct access grant.");
+        ClientRepresentation testApp = findTestApp(testRealm);
+        if (testApp == null) {
+            throw new IllegalStateException("Couldn't find the 'test-app' within the realm '" + testRealm.getRealm() + "'");
+        }
+        testApp.setDirectAccessGrantsEnabled(true);
     }
-
-
 
     @Override
     public void addTestRealms(List<RealmRepresentation> testRealms) {
+        log.debug("--DC: AbstractAdminCrossDCTest.addTestRealms - adding realm: " + REALM_NAME);
         super.addTestRealms(testRealms);
 
         RealmRepresentation adminRealmRep = new RealmRepresentation();
@@ -76,6 +81,7 @@ public abstract class AbstractAdminCrossDCTest extends AbstractCrossDCTest {
 
     @Before
     public void setRealm() {
+        log.debug("--DC: AbstractAdminCrossDCTest.setRealm");
         realm = adminClient.realm(REALM_NAME);
         realmId = realm.toRepresentation().getId();
     }
@@ -95,8 +101,10 @@ public abstract class AbstractAdminCrossDCTest extends AbstractCrossDCTest {
             T newStat = (T) stats.getSingleStatistics(key);
 
             Matcher<? super T> matcherInstance = matcherOnOldStat.apply(oldStat);
+            
+            log.infof("assertSingleStatistics '%s' : oldStat: %s, newStat: %s", key, oldStat.toString(), newStat.toString());
             assertThat(newStat, matcherInstance);
-        }, 20, 200);
+        }, 50, 200);
     }
 
     protected void assertStatistics(InfinispanStatistics stats, Runnable testedCode, BiConsumer<Map<String, Object>, Map<String, Object>> assertionOnStats) {
@@ -108,7 +116,7 @@ public abstract class AbstractAdminCrossDCTest extends AbstractCrossDCTest {
         Retry.execute(() -> {
             Map<String, Object> newStat = stats.getStatistics();
             assertionOnStats.accept(oldStat, newStat);
-        }, 5, 200);
+        }, 50, 200);
     }
 
 }

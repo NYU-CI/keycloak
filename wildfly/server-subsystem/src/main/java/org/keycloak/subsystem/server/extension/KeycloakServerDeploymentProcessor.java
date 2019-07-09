@@ -41,7 +41,7 @@ import java.util.List;
 public class KeycloakServerDeploymentProcessor implements DeploymentUnitProcessor {
 
     private static final String[] CACHES = new String[] {
-        "realms", "users","sessions","authenticationSessions","offlineSessions","loginFailures","work","authorization","keys","actionTokens"
+        "realms", "users","sessions","authenticationSessions","offlineSessions","clientSessions","offlineClientSessions","loginFailures","work","authorization","keys","actionTokens"
     };
 
     // This param name is defined again in Keycloak Services class
@@ -90,6 +90,12 @@ public class KeycloakServerDeploymentProcessor implements DeploymentUnitProcesso
         ParamValueMetaData param = new ParamValueMetaData();
         param.setParamName(KEYCLOAK_CONFIG_PARAM_NAME);
         param.setParamValue(configService.getConfig().toString());
+        contextParams.add(param);
+
+        // Prefer ResteasyJackson2Provider over JsonBindingProvider
+        param = new ParamValueMetaData();
+        param.setParamName("resteasy.preferJacksonOverJsonB"); // Corresponds to ResteasyContextParameters.RESTEASY_PREFER_JACKSON_OVER_JSONB
+        param.setParamValue(Boolean.TRUE.toString());
         contextParams.add(param);
 
         webMetaData.setContextParams(contextParams);

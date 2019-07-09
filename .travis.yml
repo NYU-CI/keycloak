@@ -1,5 +1,4 @@
 language: java
-dist: precise
 
 cache:
   cache: false
@@ -14,14 +13,33 @@ env:
     - TESTS=server-group2
     - TESTS=server-group3
     - TESTS=server-group4
-    - TESTS=old
+    - TESTS=adapter-tests
+    - TESTS=crossdc-server
+    - TESTS=crossdc-adapter
+    - TESTS=broker
 
 jdk:
-  - oraclejdk8
+  - openjdk8
 
 install: true
 
+before_install:
+  - "export PHANTOMJS_VERSION=2.1.1"
+  - "phantomjs --version"
+  - "export PATH=$PWD/travis_phantomjs/phantomjs-$PHANTOMJS_VERSION-linux-x86_64/bin:$PATH"
+  - "phantomjs --version"
+  - "if [ $(phantomjs --version) != '$PHANTOMJS_VERSION' ]; then rm -rf $PWD/travis_phantomjs; mkdir -p $PWD/travis_phantomjs; fi"
+  - "if [ $(phantomjs --version) != '$PHANTOMJS_VERSION' ]; then wget https://github.com/Medium/phantomjs/releases/download/v$PHANTOMJS_VERSION/phantomjs-$PHANTOMJS_VERSION-linux-x86_64.tar.bz2 -O $PWD/travis_phantomjs/phantomjs-$PHANTOMJS_VERSION-linux-x86_64.tar.bz2; fi"
+  - "if [ $(phantomjs --version) != '$PHANTOMJS_VERSION' ]; then tar -xvf $PWD/travis_phantomjs/phantomjs-$PHANTOMJS_VERSION-linux-x86_64.tar.bz2 -C $PWD/travis_phantomjs; fi"
+  - "phantomjs --version"
+
+before_script:
+  - export -f travis_fold
+
 script: 
   - ./travis-run-tests.sh $TESTS
+
+after_success:
+  - .travis/docker-hub-master-trigger.sh
 
 sudo: false

@@ -28,10 +28,11 @@ import org.junit.Test;
 import org.keycloak.admin.client.resource.AuthorizationResource;
 import org.keycloak.admin.client.resource.RulePoliciesResource;
 import org.keycloak.admin.client.resource.RulePolicyResource;
-import org.keycloak.common.Version;
+import org.keycloak.common.Profile;
 import org.keycloak.representations.idm.authorization.DecisionStrategy;
 import org.keycloak.representations.idm.authorization.Logic;
 import org.keycloak.representations.idm.authorization.RulePolicyRepresentation;
+import org.keycloak.testsuite.ProfileAssume;
 
 /**
  * @author <a href="mailto:psilva@redhat.com">Pedro Igor</a>
@@ -40,11 +41,13 @@ public class RulesPolicyManagementTest extends AbstractPolicyManagementTest {
 
     @Test
     public void testCreate() {
+        ProfileAssume.assumeFeatureEnabled(Profile.Feature.AUTHZ_DROOLS_POLICY);
         assertCreated(getClient().authorization(), createDefaultRepresentation("Rule Policy"));
     }
 
     @Test
     public void testUpdate() {
+        ProfileAssume.assumeFeatureEnabled(Profile.Feature.AUTHZ_DROOLS_POLICY);
         AuthorizationResource authorization = getClient().authorization();
         RulePolicyRepresentation representation = createDefaultRepresentation("Update Rule Policy");
 
@@ -69,22 +72,25 @@ public class RulesPolicyManagementTest extends AbstractPolicyManagementTest {
 
     @Test
     public void testDelete() {
+        ProfileAssume.assumeFeatureEnabled(Profile.Feature.AUTHZ_DROOLS_POLICY);
         AuthorizationResource authorization = getClient().authorization();
         RulePolicyRepresentation representation = createDefaultRepresentation("Delete Rule Policy");
 
         RulePoliciesResource policies = authorization.policies().rule();
-        Response response = policies.create(representation);
-        RulePolicyRepresentation created = response.readEntity(RulePolicyRepresentation.class);
 
-        policies.findById(created.getId()).remove();
+        try (Response response = policies.create(representation)) {
+            RulePolicyRepresentation created = response.readEntity(RulePolicyRepresentation.class);
 
-        RulePolicyResource removed = policies.findById(created.getId());
+            policies.findById(created.getId()).remove();
 
-        try {
-            removed.toRepresentation();
-            fail("Policy not removed");
-        } catch (NotFoundException ignore) {
+            RulePolicyResource removed = policies.findById(created.getId());
 
+            try {
+                removed.toRepresentation();
+                fail("Policy not removed");
+            } catch (NotFoundException ignore) {
+
+            }
         }
     }
 
@@ -95,9 +101,9 @@ public class RulesPolicyManagementTest extends AbstractPolicyManagementTest {
         representation.setDescription("description");
         representation.setDecisionStrategy(DecisionStrategy.CONSENSUS);
         representation.setLogic(Logic.NEGATIVE);
-        representation.setArtifactGroupId("org.keycloak");
+        representation.setArtifactGroupId("org.keycloak.testsuite");
         representation.setArtifactId("photoz-authz-policy");
-        representation.setArtifactVersion(Version.VERSION);
+        representation.setArtifactVersion(System.getProperty("project.version"));
         representation.setModuleName("PhotozAuthzOwnerPolicy");
         representation.setSessionName("MainOwnerSession");
         representation.setScannerPeriod("1");
@@ -108,10 +114,12 @@ public class RulesPolicyManagementTest extends AbstractPolicyManagementTest {
 
     private void assertCreated(AuthorizationResource authorization, RulePolicyRepresentation representation) {
         RulePoliciesResource permissions = authorization.policies().rule();
-        Response response = permissions.create(representation);
-        RulePolicyRepresentation created = response.readEntity(RulePolicyRepresentation.class);
-        RulePolicyResource permission = permissions.findById(created.getId());
-        assertRepresentation(representation, permission);
+
+        try (Response response = permissions.create(representation)) {
+            RulePolicyRepresentation created = response.readEntity(RulePolicyRepresentation.class);
+            RulePolicyResource permission = permissions.findById(created.getId());
+            assertRepresentation(representation, permission);
+        }
     }
 
     private void assertRepresentation(RulePolicyRepresentation expected, RulePolicyResource policy) {

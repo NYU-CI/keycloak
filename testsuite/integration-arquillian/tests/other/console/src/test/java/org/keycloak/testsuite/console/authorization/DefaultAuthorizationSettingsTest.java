@@ -20,8 +20,13 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
+import java.util.List;
+
 import org.junit.Test;
+import org.keycloak.admin.client.resource.AuthorizationResource;
 import org.keycloak.representations.adapters.config.PolicyEnforcerConfig;
+import org.keycloak.representations.idm.ClientRepresentation;
+import org.keycloak.representations.idm.authorization.DecisionStrategy;
 import org.keycloak.representations.idm.authorization.PolicyRepresentation;
 import org.keycloak.representations.idm.authorization.ResourceRepresentation;
 import org.keycloak.testsuite.console.page.clients.authorization.AuthorizationSettingsForm;
@@ -37,10 +42,23 @@ public class DefaultAuthorizationSettingsTest extends AbstractAuthorizationSetti
 
     @Test
     public void testDefaultSettings() {
+        assertDefaultSettings();
+        authorizationPage.tabs().settings();
+        clientSettingsPage.form().setName("changed");
+        clientSettingsPage.form().save();
+        assertAlertSuccess();
+        clientSettingsPage.tabs().authorization();
+        assertDefaultSettings();
+    }
+
+    private void assertDefaultSettings() {
         AuthorizationSettingsForm settings = authorizationPage.settings();
 
         assertEquals(PolicyEnforcerConfig.EnforcementMode.ENFORCING, settings.getEnforcementMode());
-        assertEquals(false, settings.isAllowRemoteResourceManagement());
+        assertEquals(true, settings.isAllowRemoteResourceManagement());
+
+        assertEquals(DecisionStrategy.UNANIMOUS, settings.getDecisionStrategy());
+        assertEquals(true, settings.isAllowRemoteResourceManagement());
 
         Resources resources = authorizationPage.authorizationTabs().resources();
         ResourceRepresentation resource = resources.resources().findByName("Default Resource");

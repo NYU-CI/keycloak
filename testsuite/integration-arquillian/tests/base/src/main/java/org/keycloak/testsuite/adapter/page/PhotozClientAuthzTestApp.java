@@ -17,19 +17,26 @@
 package org.keycloak.testsuite.adapter.page;
 
 import org.jboss.arquillian.container.test.api.OperateOnDeployment;
+import org.jboss.arquillian.drone.api.annotation.Drone;
 import org.jboss.arquillian.graphene.page.Page;
 import org.jboss.arquillian.test.api.ArquillianResource;
 import org.keycloak.testsuite.auth.page.login.OIDCLogin;
 import org.keycloak.testsuite.page.AbstractPageWithInjectedUrl;
-import org.keycloak.testsuite.page.Form;
-import org.keycloak.testsuite.pages.ConsentPage;
+import org.keycloak.testsuite.util.JavascriptBrowser;
+import org.keycloak.testsuite.util.UIUtils;
 import org.keycloak.testsuite.util.URLUtils;
+import org.keycloak.testsuite.util.javascript.JavascriptStateValidator;
+import org.keycloak.testsuite.util.javascript.JavascriptTestExecutorWithAuthorization;
+import org.keycloak.testsuite.util.javascript.ResponseValidator;
+import org.keycloak.testsuite.util.javascript.XMLHttpRequest;
 import org.openqa.selenium.By;
+import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.WebElement;
 import org.openqa.selenium.support.FindBy;
 
 import java.net.URL;
 
+import static org.keycloak.testsuite.util.UIUtils.clickLink;
 import static org.keycloak.testsuite.util.WaitUtils.pause;
 import static org.keycloak.testsuite.util.WaitUtils.waitForPageToLoad;
 import static org.keycloak.testsuite.util.WaitUtils.waitUntilElement;
@@ -41,123 +48,244 @@ import static org.keycloak.testsuite.util.WaitUtils.waitUntilElement;
 public class PhotozClientAuthzTestApp extends AbstractPageWithInjectedUrl {
 
     public static final String DEPLOYMENT_NAME = "photoz-html5-client";
-    public static final int WAIT_AFTER_OPERATION = 2000;
+    public static final int WAIT_AFTER_OPERATION = 1000;
 
     @ArquillianResource
     @OperateOnDeployment(DEPLOYMENT_NAME)
     private URL url;
 
+    @Drone
+    @JavascriptBrowser
+    protected WebDriver driver;
+
     @Page
+    @JavascriptBrowser
     protected OIDCLogin loginPage;
 
-    @Page
-    protected ConsentPage consentPage;
 
     @FindBy(xpath = "//a[@ng-click = 'Identity.logout()']")
+    @JavascriptBrowser
     private WebElement signOutButton;
     
     @FindBy(id = "entitlement")
+    @JavascriptBrowser
     private WebElement entitlement;
     
     @FindBy(id = "entitlements")
+    @JavascriptBrowser
     private WebElement entitlements;
 
+    @FindBy(id = "get-all-resources")
+    @JavascriptBrowser
+    private WebElement viewAllAlbums;
+
     @FindBy(id = "output")
+    @JavascriptBrowser
     private WebElement output;
-    
+
+    private JavascriptTestExecutorWithAuthorization testExecutor;
+    private String apiUrl;
+
+    public void setTestExecutorPlayground(JavascriptTestExecutorWithAuthorization executor, String apiUrl) {
+        testExecutor = executor;
+        this.apiUrl = apiUrl;
+    }
+
     public void createAlbum(String name) {
-        createAlbum(name, "save-album");
+        createAlbum(name, false);
     }
 
-    public void createAlbum(String name, String buttonId) {
-        navigateTo();
-        this.driver.findElement(By.id("create-album")).click();
-        Form.setInputValue(this.driver.findElement(By.id("album.name")), name);
-        pause(200); // We need to wait a bit for the form to "accept" the input (otherwise it registers the input as empty)
-        this.driver.findElement(By.id(buttonId)).click();
-        pause(WAIT_AFTER_OPERATION);
+    public void createAlbum(String name, boolean managed) {
+        createAlbum(name, managed, false, null);
     }
 
-    public void createAlbumWithInvalidUser(String name) {
-        createAlbum(name, "save-album-invalid");
+    public void createAlbum(String name, boolean managed, boolean invalidUser, ResponseValidator validator) {
+        testExecutor.sendXMLHttpRequest(
+                XMLHttpRequest.create()
+                        .method("POST")
+                        .url(apiUrl + "/album" + (invalidUser ? "?user=invalidUser" : ""))
+                        .content("JSON.stringify(JSON.parse('{\"name\" : \"" + name + "\", \"userManaged\": " + Boolean.toString(managed) + " }'))")
+                        .addHeader("Content-Type", "application/json; charset=UTF-8")
+                , validator);
     }
+
+
+    public void createAlbumWithInvalidUser(String name, ResponseValidator validator) {
+        createAlbum(name, false, true, validator);
+    }
+
+
 
     @Override
     public URL getInjectedUrl() {
         return this.url;
     }
 
-    public void deleteAlbum(String name) {
-        driver.findElements(By.xpath("//a[text()='" + name + "']/following-sibling::a[text()='X']")).forEach(WebElement::click);
-        pause(WAIT_AFTER_OPERATION);
+    public void deleteAlbum(String name, ResponseValidator validator) {
+        testExecutor.sendXMLHttpRequest(
+                XMLHttpRequest.create()
+                        .method("DELETE")
+                        .url(apiUrl + "/album/" + name + "/") // it doesn't work without ending "/"
+                , validator);
     }
 
-    public void navigateToAdminAlbum() {
-        URLUtils.navigateToUri(driver, toString() + "/#/admin/album", true);
-        driver.navigate().refresh(); // This is sometimes necessary for loading the new policy settings
-        waitForPageToLoad(driver);
-        pause(WAIT_AFTER_OPERATION);
+    public void navigateToAdminAlbum(ResponseValidator validator) {
+        testExecutor.sendXMLHttpRequest(
+                XMLHttpRequest.create()
+                        .method("GET")
+                        .addHeader("Accept", "application/json")
+                        .url(apiUrl + "/admin/album")
+                , validator);
     }
 
     public void logOut() {
-        waitUntilElement(signOutButton); // Sometimes doesn't work in PhantomJS!
-        signOutButton.click();
-        pause(WAIT_AFTER_OPERATION);
+        navigateTo();
+        waitUntilElement(signOutButton).is().clickable(); // Sometimes doesn't work in PhantomJS!
+        clickLink(signOutButton);
     }
     
-    public void requestEntitlement() {
-        entitlement.click();
-        pause(WAIT_AFTER_OPERATION);
-        pause(WAIT_AFTER_OPERATION);
+    public void requestEntitlement(JavascriptStateValidator validator) {
+        testExecutor.executeAsyncScript("var callback = arguments[arguments.length - 1];" +
+                "window.authorization.entitlement('photoz-restful-api', {" +
+                "    \"permissions\": [" +
+                "        {" +
+                "            \"id\" : \"Album Resource\"" +
+                "        }" +
+                "    ]" +
+                "}).then(function (rpt) {" +
+                "    callback(JSON.stringify(jwt_decode(rpt), null, '  '));" +
+                "});", validator);
     }
     
-    public void requestEntitlements() {
-        entitlements.click();
-        pause(WAIT_AFTER_OPERATION);
+    public void requestEntitlements(JavascriptStateValidator validator) {
+        testExecutor.executeAsyncScript("var callback = arguments[arguments.length - 1];" +
+                "window.authorization.entitlement('photoz-restful-api', {}).then(function (rpt) {" +
+                "     callback(JSON.stringify(jwt_decode(rpt), null, '  '));" +
+                "});", validator);
+    }
+
+    private void waitForDenial() {
+        waitUntilElement(output).text().contains("You can not access");
+    }
+
+    private void waitForNotDenial() {
+        waitUntilElement(output).text().not().contains("You can not access");
+    }
+
+    public void viewAllAlbums() {
+        viewAllAlbums.click();
         pause(WAIT_AFTER_OPERATION);
     }
 
-    public void login(String username, String password, String... scopes) throws InterruptedException {
-        if (this.driver.getCurrentUrl().startsWith(getInjectedUrl().toString())) {
-            Thread.sleep(2000);
-            logOut();
-            navigateTo();
-        }
-
-        Thread.sleep(2000);
-
-        if (scopes.length > 0) {
-            StringBuilder scopesValue = new StringBuilder();
-
-            for (String scope : scopes) {
-                if (scopesValue.length() != 0) {
-                    scopesValue.append(" ");
-                }
-                scopesValue.append(scope);
-            }
-
-            URLUtils.navigateToUri(driver, this.driver.getCurrentUrl() + " " + scopesValue, true);
-        }
-
-        this.loginPage.form().login(username, password);
-
-        // simple check if we are at the consent page, if so just click 'Yes'
-        if (this.consentPage.isCurrent()) {
-            consentPage.confirm();
-        }
-
-        pause(WAIT_AFTER_OPERATION);
+    public void viewAlbum(String name, ResponseValidator validator) {
+        testExecutor.sendXMLHttpRequest(
+                XMLHttpRequest.create()
+                        .method("GET")
+                        .addHeader("Accept", "application/json")
+                        .url(apiUrl + "/album/" + name + "/")
+                , validator);
     }
 
-    public boolean wasDenied() {
-        return this.driver.findElement(By.id("output")).getText().contains("You can not access");
+    public void accountPage() {
+        testExecutor.openAccountPage(null);
+        waitForPageToLoad();
     }
 
-    public void viewAlbum(String name) throws InterruptedException {
-        this.driver.findElement(By.xpath("//a[text() = '" + name + "']")).click();
-        waitForPageToLoad(driver);
-        driver.navigate().refresh(); // This is sometimes necessary for loading the new policy settings
-        pause(WAIT_AFTER_OPERATION);
+    public void accountMyResources() {
+        accountPage();
+        WebElement myResources = driver.findElement(By.xpath("//a[text() = 'My Resources']"));
+        waitUntilElement(myResources).is().clickable();
+        myResources.click();
+        waitForPageToLoad();
+    }
+
+    public void accountMyResource(String name) {
+        accountMyResources();
+        WebElement myResource = driver.findElement(By.id("detail-" + name));
+        waitUntilElement(myResource).is().clickable();
+        myResource.click();
+        waitForPageToLoad();
+    }
+
+    public void accountGrantResource(String name, String requester) {
+        accountMyResources();
+        WebElement grantResource = driver.findElement(By.id("grant-" + name + "-" + requester));
+        waitUntilElement(grantResource).is().clickable();
+        grantResource.click();
+        waitForPageToLoad();
+    }
+
+    public void accountGrantRemoveScope(String name, String requester, String scope) {
+        accountMyResources();
+        WebElement grantRemoveScope = driver.findElement(By.id("grant-remove-scope-" + name + "-" + requester + "-" + scope));
+        waitUntilElement(grantRemoveScope).is().clickable();
+        grantRemoveScope.click();
+        waitForPageToLoad();
+    }
+
+    public void accountRevokeResource(String name, String requester) {
+        accountMyResource(name);
+        WebElement revokeResource = driver.findElement(By.id("revoke-" + name + "-" + requester));
+        waitUntilElement(revokeResource).is().clickable();
+        revokeResource.click();
+        waitForPageToLoad();
+    }
+
+    public void accountShareResource(String name, String user) {
+        accountMyResource(name);
+        WebElement userIdInput = driver.findElement(By.id("user_id"));
+        UIUtils.setTextInputValue(userIdInput, user);
+        pause(200); // We need to wait a bit for the form to "accept" the input (otherwise it registers the input as empty)
+        waitUntilElement(userIdInput).attribute(UIUtils.VALUE_ATTR_NAME).contains(user);
+        
+        WebElement shareButton = driver.findElement(By.id("share-button"));
+        waitUntilElement(shareButton).is().clickable();
+        shareButton.click();
+        waitForPageToLoad();
+    }
+
+    public void accountShareRemoveScope(String name, String user, String scope) {
+        accountMyResource(name);
+        
+        WebElement userIdInput = driver.findElement(By.id("user_id"));
+        UIUtils.setTextInputValue(userIdInput, user);
+        pause(200); // We need to wait a bit for the form to "accept" the input (otherwise it registers the input as empty)
+        waitUntilElement(userIdInput).attribute(UIUtils.VALUE_ATTR_NAME).contains(user);
+        
+        WebElement shareRemoveScope = driver.findElement(By.id("share-remove-scope-" + name + "-" + scope));
+        waitUntilElement(shareRemoveScope).is().clickable();
+        shareRemoveScope.click();
+        waitForPageToLoad();
+        
+        WebElement shareButton = driver.findElement(By.id("share-button"));
+        waitUntilElement(shareButton).is().clickable();
+        shareButton.click();
+        
+        waitForPageToLoad();
+    }
+
+    public void accountDenyResource(String name) {
+        accountMyResource(name);
+        WebElement denyLink = driver.findElement(By.linkText("Deny"));
+        waitUntilElement(denyLink).is().clickable();
+        denyLink.click();
+        waitForPageToLoad();
+    }
+
+    public void requestResourceProtectedAnyScope(ResponseValidator validator) {
+        testExecutor.sendXMLHttpRequest(
+                XMLHttpRequest.create()
+                        .method("GET")
+                        .url(apiUrl + "/scope-any")
+                , validator);
+    }
+
+    public void requestResourceProtectedAllScope(ResponseValidator validator) {
+        testExecutor.sendXMLHttpRequest(
+                XMLHttpRequest.create()
+                        .method("GET")
+                        .url(apiUrl + "/scope-all")
+                , validator);
     }
 
     public WebElement getOutput() {
@@ -165,13 +293,13 @@ public class PhotozClientAuthzTestApp extends AbstractPageWithInjectedUrl {
     }
 
     @Override
-    public void navigateTo(boolean waitForMatch) {
-        super.navigateTo(waitForMatch);
-        pause(WAIT_AFTER_OPERATION);
+    public void navigateTo() {
+        driver.navigate().to(toString());
+        waitForPageToLoad();
     }
 
     @Override
     public boolean isCurrent() {
-        return URLUtils.currentUrlStartWith(driver, toString());
+        return URLUtils.currentUrlStartsWith(toString());
     }
 }

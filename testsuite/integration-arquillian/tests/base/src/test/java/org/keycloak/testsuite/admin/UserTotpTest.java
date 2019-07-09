@@ -28,7 +28,7 @@ import org.keycloak.models.utils.TimeBasedOTP;
 import org.keycloak.representations.idm.AdminEventRepresentation;
 import org.keycloak.representations.idm.RealmRepresentation;
 import org.keycloak.representations.idm.UserRepresentation;
-import org.keycloak.services.resources.AccountService;
+import org.keycloak.services.resources.account.AccountFormService;
 import org.keycloak.testsuite.AssertEvents;
 import org.keycloak.testsuite.AbstractTestRealmKeycloakTest;
 import org.keycloak.testsuite.pages.AccountTotpPage;
@@ -43,9 +43,6 @@ import java.util.List;
  * @author <a href="mailto:mstrukel@redhat.com">Marko Strukelj</a>
  */
 public class UserTotpTest extends AbstractTestRealmKeycloakTest {
-
-    private static final UriBuilder BASE = UriBuilder.fromUri("http://localhost:8180/auth");
-    public static String ACCOUNT_REDIRECT = AccountService.loginRedirectUrl(BASE.clone()).build("test").toString();
 
     @Rule
     public AssertEvents events = new AssertEvents(this);
@@ -71,7 +68,7 @@ public class UserTotpTest extends AbstractTestRealmKeycloakTest {
         totpPage.open();
         loginPage.login("test-user@localhost", "password");
 
-        events.expectLogin().client("account").detail(Details.REDIRECT_URI, ACCOUNT_REDIRECT + "?path=totp").assertEvent();
+        events.expectLogin().client("account").detail(Details.REDIRECT_URI, getAccountRedirectUrl() + "?path=totp").assertEvent();
 
         Assert.assertTrue(totpPage.isCurrent());
 

@@ -1,6 +1,7 @@
 package org.keycloak.testsuite.cli.registration;
 
 import org.junit.Assert;
+import org.junit.Assume;
 import org.junit.Test;
 import org.keycloak.client.registration.cli.config.ConfigData;
 import org.keycloak.client.registration.cli.config.FileConfigHandler;
@@ -243,6 +244,18 @@ public class KcRegTest extends AbstractRegCliTest {
 
         assertExitCodeAndStreamSizes(exe, 1, 0, 2);
         Assert.assertEquals("stderr first line", "Required option not specified: --realm", exe.stderrLines().get(0));
+        Assert.assertEquals("try help", "Try '" + CMD + " help config credentials' for more information", exe.stderrLines().get(1));
+    }
+
+    @Test
+    public void testCredentialsWithNoConfig() {
+        /*
+         *  Test with --no-config specified which is not supported
+         */
+        KcRegExec exe = KcRegExec.execute("config credentials --no-config --server " + serverUrl + " --realm master --user admin --password admin");
+
+        assertExitCodeAndStreamSizes(exe, 1, 0, 2);
+        Assert.assertEquals("stderr first line", "Unsupported option: --no-config", exe.stderrLines().get(0));
         Assert.assertEquals("try help", "Try '" + CMD + " help config credentials' for more information", exe.stderrLines().get(1));
     }
 
@@ -559,24 +572,25 @@ public class KcRegTest extends AbstractRegCliTest {
     }
 
     @Test
-    public void testCreateDeleteWithInitialAndRegistrationTokens() throws IOException {
+    public void testCreateDeleteWithInitialAndRegistrationTokensWithUnsecureOption() throws IOException {
         /*
          *  Test create using initial client token, and subsequent delete using registration access token.
          *  A config file is used to save registration access token for newly created client.
          */
-        testCreateDeleteWithInitialAndRegistrationTokens(true);
+        testCreateDeleteWithInitialAndRegistrationTokensWithUnsecureOption(true);
     }
 
     @Test
-    public void testCreateDeleteWithInitialAndRegistrationTokensNoConfig() throws IOException {
+    public void testCreateDeleteWithInitialAndRegistrationTokensWithUnsecureOptionNoConfig() throws IOException {
         /*
          *  Test create using initial client token, and subsequent delete using registration access token.
          *  No config file is used so registration access token for newly created client is not saved to config.
          */
-        testCreateDeleteWithInitialAndRegistrationTokens(false);
+        testCreateDeleteWithInitialAndRegistrationTokensWithUnsecureOption(false);
     }
 
-    private void testCreateDeleteWithInitialAndRegistrationTokens(boolean useConfig) throws IOException {
+    private void testCreateDeleteWithInitialAndRegistrationTokensWithUnsecureOption(boolean useConfig) throws IOException {
+        Assume.assumeTrue(AUTH_SERVER_SSL_REQUIRED);
 
         // prepare for loading a config file
         // only used when useConfig is true
@@ -589,7 +603,7 @@ public class KcRegTest extends AbstractRegCliTest {
             final String realm = "master";
 
             KcRegExec exe = execute("create " + (useConfig ? ("--config '" + configFile.getAbsolutePath()) + "'" : "--no-config")
-                    + " --server " + serverUrl + " --realm " + realm + " -s clientId=test-client2 -o -t " + token);
+                    + " --insecure --server " + oauth.AUTH_SERVER_ROOT + " --realm " + realm + " -s clientId=test-client2 -o -t " + token);
 
             Assert.assertEquals("exitCode == 0", 0, exe.exitCode());
 
@@ -603,15 +617,15 @@ public class KcRegTest extends AbstractRegCliTest {
             if (useConfig) {
                 ConfigData config = handler.loadConfig();
                 Assert.assertEquals("Registration Access Token in config file", client.getRegistrationAccessToken(),
-                        config.ensureRealmConfigData(serverUrl, realm).getClients().get("test-client2"));
+                        config.ensureRealmConfigData(oauth.AUTH_SERVER_ROOT, realm).getClients().get("test-client2"));
             } else {
                 Assert.assertFalse("There should be no config file", configFile.isFile());
             }
 
             exe = execute("delete test-client2 " + (useConfig ? ("--config '" + configFile.getAbsolutePath()) + "'" : "--no-config")
-                    + " --server " + serverUrl + " --realm " + realm + " -t " + client.getRegistrationAccessToken());
+                    + " --insecure --server " + oauth.AUTH_SERVER_ROOT + " --realm " + realm + " -t " + client.getRegistrationAccessToken());
 
-            assertExitCodeAndStreamSizes(exe, 0, 0, 0);
+            assertExitCodeAndStreamSizes(exe, 0, 0, 2);
         }
     }
 

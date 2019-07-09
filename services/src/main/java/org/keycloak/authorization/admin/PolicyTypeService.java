@@ -41,7 +41,7 @@ public class PolicyTypeService extends PolicyService {
 
     private final String type;
 
-    PolicyTypeService(String type, ResourceServer resourceServer, AuthorizationProvider authorization, AdminPermissionEvaluator auth, AdminEventBuilder adminEvent) {
+    public PolicyTypeService(String type, ResourceServer resourceServer, AuthorizationProvider authorization, AdminPermissionEvaluator auth, AdminEventBuilder adminEvent) {
         super(resourceServer, authorization, auth, adminEvent);
         this.type = type;
     }
@@ -88,8 +88,7 @@ public class PolicyTypeService extends PolicyService {
 
     @Override
     protected AbstractPolicyRepresentation toRepresentation(Policy policy, AuthorizationProvider authorization) {
-        PolicyProviderFactory providerFactory = authorization.getProviderFactory(policy.getType());
-        return ModelToRepresentation.toRepresentation(policy, providerFactory.getRepresentationType(), authorization);
+        return ModelToRepresentation.toRepresentation(policy, authorization, false, false);
     }
 
     @Override

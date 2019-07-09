@@ -17,14 +17,13 @@
 
 package org.keycloak.testsuite.crossdc;
 
+import java.util.ArrayList;
 import org.keycloak.admin.client.Keycloak;
 import org.keycloak.admin.client.resource.RealmResource;
-import java.util.List;
 
 import org.jboss.arquillian.container.test.api.ContainerController;
 import org.jboss.arquillian.test.api.ArquillianResource;
 import org.keycloak.testsuite.admin.concurrency.ConcurrentLoginTest;
-import org.keycloak.testsuite.arquillian.ContainerInfo;
 import org.keycloak.testsuite.arquillian.LoadBalancerController;
 import org.keycloak.testsuite.arquillian.annotation.LoadBalancer;
 import java.util.Arrays;
@@ -33,14 +32,13 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.apache.http.client.methods.HttpUriRequest;
 import org.apache.http.client.protocol.HttpClientContext;
 import org.apache.http.impl.client.CloseableHttpClient;
-import org.apache.http.impl.client.HttpClientBuilder;
-import org.apache.http.impl.client.LaxRedirectStrategy;
-import org.junit.Ignore;
 import org.junit.Test;
+import org.keycloak.testsuite.arquillian.annotation.InitialDcState;
 
 /**
  * @author <a href="mailto:mposolda@redhat.com">Marek Posolda</a>
  */
+@InitialDcState(authServers = ServerSetup.ALL_NODES_IN_EVERY_DC)
 public class ConcurrentLoginCrossDCTest extends ConcurrentLoginTest {
 
     @ArquillianResource
@@ -56,14 +54,15 @@ public class ConcurrentLoginCrossDCTest extends ConcurrentLoginTest {
 
     @Override
     public void beforeAbstractKeycloakTestRealmImport() {
-        log.debug("Initializing load balancer - enabling all started nodes across DCs");
-        this.loadBalancerCtrl.disableAllBackendNodes();
+        loadBalancerCtrl.enableAllBackendNodes();
+    }
 
-        this.suiteContext.getDcAuthServerBackendsInfo().stream()
-                .flatMap(List::stream)
-                .filter(ContainerInfo::isStarted)
-                .map(ContainerInfo::getQualifier)
-                .forEach(loadBalancerCtrl::enableBackendNodeByName);
+    @Override
+    public void postAfterAbstractKeycloak() {
+        loadBalancerCtrl.disableAllBackendNodes();
+        
+        //realms is already removed and this prevents another removal in AuthServerTestEnricher.afterClass
+        testContext.setTestRealmReps(new ArrayList<>());
     }
 
     @Test
@@ -74,8 +73,8 @@ public class ConcurrentLoginCrossDCTest extends ConcurrentLoginTest {
         AtomicReference<String> userSessionId = new AtomicReference<>();
         LoginTask loginTask = null;
 
-        try (CloseableHttpClient httpClient = HttpClientBuilder.create().setRedirectStrategy(new LaxRedirectStrategy()).build()) {
-            loginTask = new LoginTask(httpClient, userSessionId, LOGIN_TASK_DELAY_MS, LOGIN_TASK_RETRIES, Arrays.asList(
+        try (CloseableHttpClient httpClient = getHttpsAwareClient()) {
+            loginTask = new LoginTask(httpClient, userSessionId, LOGIN_TASK_DELAY_MS, LOGIN_TASK_RETRIES, false, Arrays.asList(
               createHttpClientContextForUser(httpClient, "test-user@localhost", "password")
             ));
             HttpUriRequest request = handleLogin(getPageContent(oauth.getLoginFormUrl(), httpClient, HttpClientContext.create()), "test-user@localhost", "password");
@@ -104,8 +103,10 @@ public class ConcurrentLoginCrossDCTest extends ConcurrentLoginTest {
                 int failureIndex = currentInvocarion / INVOCATIONS_BEFORE_SIMULATING_DC_FAILURE;
                 int dcToEnable = failureIndex % 2;
                 int dcToDisable = (failureIndex + 1) % 2;
-                suiteContext.getDcAuthServerBackendsInfo().get(dcToDisable).forEach(c -> loadBalancerCtrl.disableBackendNodeByName(c.getQualifier()));
+
+                // Ensure nodes from dcToEnable are available earlier then previous nodes from dcToDisable are disabled.
                 suiteContext.getDcAuthServerBackendsInfo().get(dcToEnable).forEach(c -> loadBalancerCtrl.enableBackendNodeByName(c.getQualifier()));
+                suiteContext.getDcAuthServerBackendsInfo().get(dcToDisable).forEach(c -> loadBalancerCtrl.disableBackendNodeByName(c.getQualifier()));
             }
         }
     }

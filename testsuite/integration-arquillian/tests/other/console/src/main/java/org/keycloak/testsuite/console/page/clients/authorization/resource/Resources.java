@@ -16,16 +16,17 @@
  */
 package org.keycloak.testsuite.console.page.clients.authorization.resource;
 
-import static org.openqa.selenium.By.tagName;
-
 import org.jboss.arquillian.graphene.page.Page;
 import org.keycloak.representations.idm.authorization.ResourceRepresentation;
+import org.keycloak.testsuite.console.page.fragment.ModalDialog;
 import org.keycloak.testsuite.page.Form;
-import org.keycloak.testsuite.util.URLUtils;
 import org.keycloak.testsuite.util.WaitUtils;
 import org.openqa.selenium.By;
 import org.openqa.selenium.WebElement;
 import org.openqa.selenium.support.FindBy;
+
+import static org.keycloak.testsuite.util.UIUtils.clickLink;
+import static org.openqa.selenium.By.tagName;
 
 /**
  * @author <a href="mailto:psilva@redhat.com">Pedro Igor</a>
@@ -41,6 +42,9 @@ public class Resources extends Form {
     @Page
     private Resource resource;
 
+    @Page
+    private ModalDialog modalDialog;
+
     public ResourcesTable resources() {
         return table;
     }
@@ -54,8 +58,8 @@ public class Resources extends Form {
         for (WebElement row : resources().rows()) {
             ResourceRepresentation actual = resources().toRepresentation(row);
             if (actual.getName().equalsIgnoreCase(name)) {
-                URLUtils.navigateToUri(driver, row.findElements(tagName("a")).get(0).getAttribute("href"), true);
-                WaitUtils.waitForPageToLoad(driver);
+                clickLink(row.findElements(tagName("a")).get(0));
+                WaitUtils.waitForPageToLoad();
                 resource.form().populate(representation);
                 return;
             }
@@ -66,8 +70,8 @@ public class Resources extends Form {
         for (WebElement row : resources().rows()) {
             ResourceRepresentation actual = resources().toRepresentation(row);
             if (actual.getName().equalsIgnoreCase(name)) {
-                URLUtils.navigateToUri(driver, row.findElements(tagName("a")).get(0).getAttribute("href"), true);
-                WaitUtils.waitForPageToLoad(driver);
+                clickLink(row.findElements(tagName("a")).get(0));
+                WaitUtils.waitForPageToLoad();
                 resource.form().delete();
                 return;
             }
@@ -78,8 +82,13 @@ public class Resources extends Form {
         for (WebElement row : resources().rows()) {
             ResourceRepresentation actual = resources().toRepresentation(row);
             if (actual.getName().equalsIgnoreCase(name)) {
-                row.findElements(tagName("td")).get(6).click();
-                driver.findElement(By.xpath(".//button[text()='Delete']")).click();
+                WebElement td = row.findElements(tagName("td")).get(5);
+                td.findElement(By.className("dropdown-toggle")).click();
+                WebElement actions = td.findElement(By.className("dropdown-menu"));
+
+                actions.findElement(By.linkText("Delete")).click();
+
+                modalDialog.confirmDeletion();
                 return;
             }
         }
@@ -89,8 +98,8 @@ public class Resources extends Form {
         for (WebElement row : resources().rows()) {
             ResourceRepresentation actual = resources().toRepresentation(row);
             if (actual.getName().equalsIgnoreCase(name)) {
-                URLUtils.navigateToUri(driver, row.findElements(tagName("a")).get(0).getAttribute("href"), true);
-                WaitUtils.waitForPageToLoad(driver);
+                clickLink(row.findElements(tagName("a")).get(0));
+                WaitUtils.waitForPageToLoad();
                 return resource;
             }
         }

@@ -19,9 +19,9 @@ package org.keycloak.services.resources.admin;
 
 import org.jboss.resteasy.annotations.cache.NoCache;
 import org.keycloak.common.util.PemUtils;
+import org.keycloak.crypto.KeyWrapper;
 import org.keycloak.jose.jws.AlgorithmType;
-import org.keycloak.keys.HmacKeyMetadata;
-import org.keycloak.keys.RsaKeyMetadata;
+import org.keycloak.keys.SecretKeyMetadata;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.KeyManager;
 import org.keycloak.models.RealmModel;
@@ -58,38 +58,28 @@ public class KeyResource {
     public KeysMetadataRepresentation getKeyMetadata() {
         auth.realm().requireViewRealm();
 
-        KeyManager keystore = session.keys();
-
         KeysMetadataRepresentation keys = new KeysMetadataRepresentation();
+        keys.setKeys(new LinkedList<>());
+        keys.setActive(new HashMap<>());
 
-        Map<String, String> active = new HashMap<>();
-        active.put(AlgorithmType.RSA.name(), keystore.getActiveRsaKey(realm).getKid());
-        active.put(AlgorithmType.HMAC.name(), keystore.getActiveHmacKey(realm).getKid());
-        keys.setActive(active);
-
-        List<KeysMetadataRepresentation.KeyMetadataRepresentation> l = new LinkedList<>();
-        for (RsaKeyMetadata m : session.keys().getRsaKeys(realm, true)) {
+        for (KeyWrapper key : session.keys().getKeys(realm)) {
             KeysMetadataRepresentation.KeyMetadataRepresentation r = new KeysMetadataRepresentation.KeyMetadataRepresentation();
-            r.setProviderId(m.getProviderId());
-            r.setProviderPriority(m.getProviderPriority());
-            r.setKid(m.getKid());
-            r.setStatus(m.getStatus() != null ? m.getStatus().name() : null);
-            r.setType(AlgorithmType.RSA.name());
-            r.setPublicKey(PemUtils.encodeKey(m.getPublicKey()));
-            r.setCertificate(PemUtils.encodeCertificate(m.getCertificate()));
-            l.add(r);
-        }
-        for (HmacKeyMetadata m : session.keys().getHmacKeys(realm, true)) {
-            KeysMetadataRepresentation.KeyMetadataRepresentation r = new KeysMetadataRepresentation.KeyMetadataRepresentation();
-            r.setProviderId(m.getProviderId());
-            r.setProviderPriority(m.getProviderPriority());
-            r.setKid(m.getKid());
-            r.setStatus(m.getStatus() != null ? m.getStatus().name() : null);
-            r.setType(AlgorithmType.HMAC.name());
-            l.add(r);
-        }
+            r.setProviderId(key.getProviderId());
+            r.setProviderPriority(key.getProviderPriority());
+            r.setKid(key.getKid());
+            r.setStatus(key.getStatus() != null ? key.getStatus().name() : null);
+            r.setType(key.getType());
+            r.setAlgorithm(key.getAlgorithm());
+            r.setPublicKey(key.getVerifyKey() != null ? PemUtils.encodeKey(key.getVerifyKey()) : null);
+            r.setCertificate(key.getCertificate() != null ? PemUtils.encodeCertificate(key.getCertificate()) : null);
+            keys.getKeys().add(r);
 
-        keys.setKeys(l);
+            if (key.getStatus().isActive()) {
+                if (!keys.getActive().containsKey(key.getAlgorithm())) {
+                    keys.getActive().put(key.getAlgorithm(), key.getKid());
+                }
+            }
+        }
 
         return keys;
     }

@@ -11,18 +11,14 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
+import org.keycloak.testsuite.pages.PageUtils;
 import org.openqa.selenium.By;
 import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.WebElement;
 import org.openqa.selenium.support.ui.ExpectedCondition;
 import org.openqa.selenium.support.ui.WebDriverWait;
 
-import static org.keycloak.testsuite.broker.BrokerTestConstants.CLIENT_ID;
-import static org.keycloak.testsuite.broker.BrokerTestConstants.CLIENT_SECRET;
-import static org.keycloak.testsuite.broker.BrokerTestConstants.IDP_OIDC_ALIAS;
 import static org.keycloak.testsuite.broker.BrokerTestConstants.IDP_OIDC_PROVIDER_ID;
-import static org.keycloak.testsuite.broker.BrokerTestConstants.REALM_CONS_NAME;
-import static org.keycloak.testsuite.broker.BrokerTestConstants.REALM_PROV_NAME;
 
 /**
  *
@@ -45,10 +41,9 @@ public class BrokerTestTools {
         return identityProviderRepresentation;
     }
 
-    public static void waitForPage(WebDriver driver, final String title) {
+    public static void waitForPage(WebDriver driver, final String title, final boolean isHtmlTitle) {
         WebDriverWait wait = new WebDriverWait(driver, 5);
-
-        ExpectedCondition<Boolean> condition = (WebDriver input) -> input.getTitle().toLowerCase().contains(title);
+        ExpectedCondition<Boolean> condition = (WebDriver input) -> isHtmlTitle ? input.getTitle().toLowerCase().contains(title) : PageUtils.getPageTitle(input).toLowerCase().contains(title);
 
         wait.until(condition);
     }

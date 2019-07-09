@@ -18,6 +18,7 @@
 
 package org.keycloak.adapters.elytron;
 
+import io.undertow.server.handlers.CookieImpl;
 import org.bouncycastle.asn1.cmp.Challenge;
 import org.keycloak.KeycloakSecurityContext;
 import org.keycloak.adapters.AdapterDeploymentContext;
@@ -40,6 +41,8 @@ import org.wildfly.security.http.Scope;
 
 import javax.security.auth.callback.CallbackHandler;
 import javax.security.cert.X509Certificate;
+
+import java.io.BufferedInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -50,13 +53,17 @@ import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.URLDecoder;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Consumer;
 
 /**
  * @author <a href="mailto:psilva@redhat.com">Pedro Igor</a>
  */
 class ElytronHttpFacade implements OIDCHttpFacade {
+
+    static final String UNDERTOW_EXCHANGE = ElytronHttpFacade.class.getName() + ".undertow.exchange";
 
     private final HttpServerRequest request;
     private final CallbackHandler callbackHandler;
@@ -66,6 +73,7 @@ class ElytronHttpFacade implements OIDCHttpFacade {
     private ElytronAccount account;
     private SecurityIdentity securityIdentity;
     private boolean restored;
+    private final Map<String, String> headers = new HashMap<>();
 
     public ElytronHttpFacade(HttpServerRequest request, AdapterDeploymentContext deploymentContext, CallbackHandler handler) {
         this.request = request;
@@ -155,6 +163,8 @@ class ElytronHttpFacade implements OIDCHttpFacade {
     @Override
     public Request getRequest() {
         return new Request() {
+            private InputStream inputStream;
+
             @Override
             public String getMethod() {
                 return request.getRequestMethod();
@@ -181,7 +191,7 @@ class ElytronHttpFacade implements OIDCHttpFacade {
 
             @Override
             public String getFirstParam(String param) {
-                throw new RuntimeException("Not implemented.");
+                return request.getFirstParameterValue(param);
             }
 
             @Override
@@ -227,6 +237,19 @@ class ElytronHttpFacade implements OIDCHttpFacade {
 
             @Override
             public InputStream getInputStream() {
+                return getInputStream(false);
+            }
+
+            @Override
+            public InputStream getInputStream(boolean buffered) {
+                if (inputStream != null) {
+                    return inputStream;
+                }
+
+                if (buffered) {
+                    return inputStream = new BufferedInputStream(request.getInputStream());
+                }
+
                 return request.getInputStream();
             }
 
@@ -261,14 +284,27 @@ class ElytronHttpFacade implements OIDCHttpFacade {
     @Override
     public Response getResponse() {
         return new Response() {
+
             @Override
             public void setStatus(final int status) {
-                responseConsumer = responseConsumer.andThen(response -> response.setStatusCode(status));
+                if (status < 200 || status > 300) {
+                    responseConsumer = responseConsumer.andThen(response -> response.setStatusCode(status));
+                }
             }
 
             @Override
             public void addHeader(final String name, final String value) {
-                responseConsumer = responseConsumer.andThen(response -> response.addResponseHeader(name, value));
+                headers.put(name, value);
+                responseConsumer = responseConsumer.andThen(new Consumer<HttpServerResponse>() {
+                    @Override
+                    public void accept(HttpServerResponse response) {
+                        String latestValue = headers.get(name);
+
+                        if (latestValue.equals(value)) {
+                            response.addResponseHeader(name, latestValue);
+                        }
+                    }
+                });
             }
 
             @Override
@@ -279,6 +315,17 @@ class ElytronHttpFacade implements OIDCHttpFacade {
             @Override
             public void resetCookie(final String name, final String path) {
                 responseConsumer = responseConsumer.andThen(response -> setCookie(name, "", path, null, 0, false, false, response));
+                HttpScope exchangeScope = getScope(Scope.EXCHANGE);
+                ProtectedHttpServerExchange undertowExchange = ProtectedHttpServerExchange.class.cast(exchangeScope.getAttachment(UNDERTOW_EXCHANGE));
+
+                if (undertowExchange != null) {
+                    CookieImpl cookie = new CookieImpl(name, "");
+
+                    cookie.setMaxAge(0);
+                    cookie.setPath(path);
+
+                    undertowExchange.getExchange().setResponseCookie(cookie);
+                }
             }
 
             @Override

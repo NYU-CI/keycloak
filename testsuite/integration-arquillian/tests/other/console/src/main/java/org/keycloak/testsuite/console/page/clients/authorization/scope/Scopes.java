@@ -16,12 +16,14 @@
  */
 package org.keycloak.testsuite.console.page.clients.authorization.scope;
 
+import static org.keycloak.testsuite.util.UIUtils.clickLink;
 import static org.openqa.selenium.By.tagName;
 
 import org.jboss.arquillian.graphene.page.Page;
 import org.keycloak.representations.idm.authorization.ScopeRepresentation;
+import org.keycloak.testsuite.console.page.fragment.ModalDialog;
 import org.keycloak.testsuite.page.Form;
-import org.keycloak.testsuite.util.URLUtils;
+import org.keycloak.testsuite.util.WaitUtils;
 import org.openqa.selenium.By;
 import org.openqa.selenium.WebElement;
 import org.openqa.selenium.support.FindBy;
@@ -40,6 +42,9 @@ public class Scopes extends Form {
     @Page
     private Scope scope;
 
+    @Page
+    private ModalDialog modalDialog;
+
     public ScopesTable scopes() {
         return table;
     }
@@ -53,7 +58,7 @@ public class Scopes extends Form {
         for (WebElement row : scopes().rows()) {
             ScopeRepresentation actual = scopes().toRepresentation(row);
             if (actual.getName().equalsIgnoreCase(name)) {
-                URLUtils.navigateToUri(driver, row.findElements(tagName("a")).get(0).getAttribute("href"), true);
+                clickLink(row.findElements(tagName("a")).get(0));
                 scope.form().populate(representation);
             }
         }
@@ -63,7 +68,7 @@ public class Scopes extends Form {
         for (WebElement row : scopes().rows()) {
             ScopeRepresentation actual = scopes().toRepresentation(row);
             if (actual.getName().equalsIgnoreCase(name)) {
-                URLUtils.navigateToUri(driver, row.findElements(tagName("a")).get(0).getAttribute("href"), true);
+                clickLink(row.findElements(tagName("a")).get(0));
                 scope.form().delete();
             }
         }
@@ -73,9 +78,26 @@ public class Scopes extends Form {
         for (WebElement row : scopes().rows()) {
             ScopeRepresentation actual = scopes().toRepresentation(row);
             if (actual.getName().equalsIgnoreCase(name)) {
-                row.findElements(tagName("td")).get(3).click();
-                driver.findElement(By.xpath(".//button[text()='Delete']")).click();
+                WebElement td = row.findElements(tagName("td")).get(2);
+                td.findElement(By.className("dropdown-toggle")).click();
+                WebElement actions = td.findElement(By.className("dropdown-menu"));
+
+                actions.findElement(By.linkText("Delete")).click();
+
+                modalDialog.confirmDeletion();
             }
         }
+    }
+
+    public Scope name(String name) {
+        for (WebElement row : scopes().rows()) {
+            ScopeRepresentation actual = scopes().toRepresentation(row);
+            if (actual.getName().equalsIgnoreCase(name)) {
+                clickLink(row.findElements(tagName("a")).get(0));
+                WaitUtils.waitForPageToLoad();
+                return scope;
+            }
+        }
+        return null;
     }
 }

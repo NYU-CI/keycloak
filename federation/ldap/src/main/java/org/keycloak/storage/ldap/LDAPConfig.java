@@ -105,8 +105,45 @@ public class LDAPConfig {
         return vendor != null && vendor.equals(LDAPConstants.VENDOR_ACTIVE_DIRECTORY);
     }
 
+    public boolean isValidatePasswordPolicy() {
+        String validatePPolicy = config.getFirst(LDAPConstants.VALIDATE_PASSWORD_POLICY);
+        return Boolean.parseBoolean(validatePPolicy);
+    }
+
     public String getConnectionPooling() {
-        return config.getFirst(LDAPConstants.CONNECTION_POOLING);
+        if(isStartTls()) {
+            return null;
+        } else {
+            return config.getFirst(LDAPConstants.CONNECTION_POOLING);
+        }
+    }
+
+    public String getConnectionPoolingAuthentication() {
+        return config.getFirst(LDAPConstants.CONNECTION_POOLING_AUTHENTICATION);
+    }
+
+    public String getConnectionPoolingDebug() {
+        return config.getFirst(LDAPConstants.CONNECTION_POOLING_DEBUG);
+    }
+
+    public String getConnectionPoolingInitSize() {
+        return config.getFirst(LDAPConstants.CONNECTION_POOLING_INITSIZE);
+    }
+
+    public String getConnectionPoolingMaxSize() {
+        return config.getFirst(LDAPConstants.CONNECTION_POOLING_MAXSIZE);
+    }
+
+    public String getConnectionPoolingPrefSize() {
+        return config.getFirst(LDAPConstants.CONNECTION_POOLING_PREFSIZE);
+    }
+
+    public String getConnectionPoolingProtocol() {
+        return config.getFirst(LDAPConstants.CONNECTION_POOLING_PROTOCOL);
+    }
+
+    public String getConnectionPoolingTimeout() {
+        return config.getFirst(LDAPConstants.CONNECTION_POOLING_TIMEOUT);
     }
 
     public String getConnectionTimeout() {
@@ -137,7 +174,7 @@ public class LDAPConfig {
 
         return uuidAttrName;
     }
-    
+
     public boolean isObjectGUID() {
         return getUuidLDAPAttributeName().equalsIgnoreCase(LDAPConstants.OBJECT_GUID);
     }
@@ -184,6 +221,10 @@ public class LDAPConfig {
             }
         }
         return null;
+    }
+
+    public boolean isStartTls() {
+        return Boolean.parseBoolean(config.getFirst(LDAPConstants.START_TLS));
     }
 
     public UserStorageProvider.EditMode getEditMode() {

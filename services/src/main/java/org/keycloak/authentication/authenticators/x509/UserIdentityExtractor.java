@@ -19,13 +19,24 @@
 package org.keycloak.authentication.authenticators.x509;
 
 import freemarker.template.utility.NullArgumentException;
+import org.bouncycastle.asn1.ASN1Encodable;
+import org.bouncycastle.asn1.ASN1InputStream;
 import org.bouncycastle.asn1.ASN1ObjectIdentifier;
+import org.bouncycastle.asn1.ASN1Sequence;
+import org.bouncycastle.asn1.ASN1TaggedObject;
+import org.bouncycastle.asn1.DERUTF8String;
 import org.bouncycastle.asn1.x500.RDN;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.asn1.x500.style.IETFUtils;
+import org.keycloak.common.util.PemUtils;
 import org.keycloak.services.ServicesLogger;
 
+import java.io.ByteArrayInputStream;
+import java.security.cert.CertificateParsingException;
 import java.security.cert.X509Certificate;
+import java.util.Collection;
+import java.util.Iterator;
+import java.util.List;
 import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -92,6 +103,115 @@ public abstract class UserIdentityExtractor {
         }
     }
 
+    /**
+     * Extracts the subject identifier from the subjectAltName extension.
+     */
+    static class SubjectAltNameExtractor extends UserIdentityExtractor {
+
+        // User Principal Name. Used typically by Microsoft in certificates for Smart Card Login
+        private static final String UPN_OID = "1.3.6.1.4.1.311.20.2.3";
+
+        private final int generalName;
+
+        /**
+         * Creates a new instance
+         *
+         * @param generalName an integer representing the general name. See {@link X509Certificate#getSubjectAlternativeNames()}
+         */
+        SubjectAltNameExtractor(int generalName) {
+            this.generalName = generalName;
+        }
+
+        @Override
+        public Object extractUserIdentity(X509Certificate[] certs) {
+            if (certs == null || certs.length == 0) {
+                throw new IllegalArgumentException();
+            }
+
+            try {
+                Collection<List<?>> subjectAlternativeNames = certs[0].getSubjectAlternativeNames();
+
+                if (subjectAlternativeNames == null) {
+                    return null;
+                }
+
+                Iterator<List<?>> iterator = subjectAlternativeNames.iterator();
+
+                boolean foundUpn = false;
+                String tempOtherName = null;
+                String tempOid = null;
+
+                while (iterator.hasNext() && !foundUpn) {
+                    List<?> next = iterator.next();
+
+                    if (Integer.class.cast(next.get(0)) == generalName) {
+
+                        // We will try to find UPN_OID among the subjectAltNames of type 'otherName' . Just if not found, we will fallback to the other type
+                        for (int i = 1 ; i<next.size() ; i++) {
+                            Object obj = next.get(i);
+
+                            // We have Subject Alternative Name of other type than 'otherName' . Just return it directly
+                            if (generalName != 0) {
+                                logger.tracef("Extracted identity '%s' from Subject Alternative Name of type '%d'", obj, generalName);
+                                return obj;
+                            }
+
+                            byte[] otherNameBytes = (byte[]) obj;
+
+                            try {
+                                ASN1InputStream asn1Stream = new ASN1InputStream(new ByteArrayInputStream(otherNameBytes));
+                                ASN1Encodable asn1otherName = asn1Stream.readObject();
+                                asn1otherName = unwrap(asn1otherName);
+
+                                ASN1Sequence asn1Sequence = ASN1Sequence.getInstance(asn1otherName);
+
+                                if (asn1Sequence != null) {
+                                    ASN1Encodable encodedOid = asn1Sequence.getObjectAt(0);
+                                    ASN1ObjectIdentifier oid = ASN1ObjectIdentifier.getInstance(unwrap(encodedOid));
+                                    tempOid = oid.getId();
+
+                                    ASN1Encodable principalNameEncoded = asn1Sequence.getObjectAt(1);
+                                    DERUTF8String principalName = DERUTF8String.getInstance(unwrap(principalNameEncoded));
+
+                                    tempOtherName = principalName.getString();
+
+                                    // We found UPN among the 'otherName' principal. We don't need to look other
+                                    if (UPN_OID.equals(tempOid)) {
+                                        foundUpn = true;
+                                        break;
+                                    }
+                                }
+
+                            } catch (Exception e) {
+                                logger.error("Failed to parse subjectAltName", e);
+                            }
+                        }
+
+                    }
+                }
+
+                logger.tracef("Parsed otherName from subjectAltName. OID: '%s', Principal: '%s'", tempOid, tempOtherName);
+
+                return tempOtherName;
+
+            } catch (CertificateParsingException cause) {
+                logger.errorf(cause, "Failed to obtain identity from subjectAltName extension");
+            }
+
+            return null;
+        }
+
+
+        private ASN1Encodable unwrap(ASN1Encodable encodable) {
+            while (encodable instanceof ASN1TaggedObject) {
+                ASN1TaggedObject taggedObj = (ASN1TaggedObject) encodable;
+                encodable = taggedObj.getObject();
+            }
+
+            return encodable;
+        }
+    }
+
     static class PatternMatcher extends UserIdentityExtractor {
         private final String _pattern;
         private final Function<X509Certificate[],String> _f;
@@ -143,7 +263,32 @@ public abstract class UserIdentityExtractor {
         return new X500NameRDNExtractor(identifier, x500Name);
     }
 
+    /**
+     * Obtains the subjectAltName given a <code>generalName</code>.
+     *
+     * @param generalName an integer representing the general name. See {@link X509Certificate#getSubjectAlternativeNames()}
+     * @return the value from the subjectAltName extension
+     */
+    public static SubjectAltNameExtractor getSubjectAltNameExtractor(int generalName) {
+        return new SubjectAltNameExtractor(generalName);
+    }
+
     public static OrBuilder either(UserIdentityExtractor extractor) {
         return new OrBuilder(extractor);
+    }
+
+    public static UserIdentityExtractor getCertificatePemIdentityExtractor(X509AuthenticatorConfigModel config) {
+        return new UserIdentityExtractor() {
+              @Override
+              public Object extractUserIdentity(X509Certificate[] certs) {
+                if (certs == null || certs.length == 0) {
+                  throw new IllegalArgumentException();
+                }
+
+                String pem = PemUtils.encodeCertificate(certs[0]);
+                logger.debugf("Using PEM certificate \"%s\" as user identity.", pem);
+                return pem;
+              }
+        };
     }
 }

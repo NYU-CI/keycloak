@@ -18,9 +18,6 @@
 
 package org.keycloak.authorization.jpa.entities;
 
-import org.keycloak.authorization.model.Policy;
-import org.keycloak.authorization.model.Scope;
-
 import javax.persistence.Access;
 import javax.persistence.AccessType;
 import javax.persistence.Column;
@@ -37,7 +34,6 @@ import javax.persistence.Table;
 import javax.persistence.UniqueConstraint;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
 
 /**
  * @author <a href="mailto:psilva@redhat.com">Pedro Igor</a>
@@ -62,6 +58,9 @@ public class ScopeEntity {
 
     @Column(name = "NAME")
     private String name;
+
+    @Column(name = "DISPLAY_NAME")
+    private String displayName;
 
     @Column(name = "ICON_URI")
     private String iconUri;
@@ -88,6 +87,18 @@ public class ScopeEntity {
 
     public void setName(String name) {
         this.name = name;
+    }
+
+    public void setDisplayName(String displayName) {
+        if (displayName != null && !"".equals(displayName.trim())) {
+            this.displayName = displayName;
+        } else {
+            this.displayName = null;
+        }
+    }
+
+    public String getDisplayName() {
+        return displayName;
     }
 
     public String getIconUri() {

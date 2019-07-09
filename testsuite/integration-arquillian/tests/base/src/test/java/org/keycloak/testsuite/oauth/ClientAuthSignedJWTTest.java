@@ -43,11 +43,7 @@ import org.keycloak.admin.client.resource.ClientResource;
 import org.keycloak.authentication.AuthenticationFlowError;
 import org.keycloak.authentication.authenticators.client.JWTClientAuthenticator;
 import org.keycloak.common.constants.ServiceAccountConstants;
-import org.keycloak.common.util.BouncyIntegration;
-import org.keycloak.common.util.KeycloakUriBuilder;
-import org.keycloak.common.util.KeystoreUtil;
-import org.keycloak.common.util.Time;
-import org.keycloak.common.util.UriUtils;
+import org.keycloak.common.util.*;
 import org.keycloak.constants.ServiceUrlConstants;
 import org.keycloak.events.Details;
 import org.keycloak.events.Errors;
@@ -195,7 +191,7 @@ public class ClientAuthSignedJWTTest extends AbstractKeycloakTest {
 
         assertEquals(200, response.getStatusCode());
         AccessToken accessToken = oauth.verifyToken(response.getAccessToken());
-        RefreshToken refreshToken = oauth.verifyRefreshToken(response.getRefreshToken());
+        RefreshToken refreshToken = oauth.parseRefreshToken(response.getRefreshToken());
 
         events.expectClientLogin()
                 .client("client1")
@@ -212,7 +208,7 @@ public class ClientAuthSignedJWTTest extends AbstractKeycloakTest {
         client1Jwt = getClient1SignedJWT();
         OAuthClient.AccessTokenResponse refreshedResponse = doRefreshTokenRequest(response.getRefreshToken(), client1Jwt);
         AccessToken refreshedAccessToken = oauth.verifyToken(refreshedResponse.getAccessToken());
-        RefreshToken refreshedRefreshToken = oauth.verifyRefreshToken(refreshedResponse.getRefreshToken());
+        RefreshToken refreshedRefreshToken = oauth.parseRefreshToken(refreshedResponse.getRefreshToken());
 
         assertEquals(accessToken.getSessionState(), refreshedAccessToken.getSessionState());
         assertEquals(accessToken.getSessionState(), refreshedRefreshToken.getSessionState());
@@ -260,7 +256,7 @@ public class ClientAuthSignedJWTTest extends AbstractKeycloakTest {
 
         assertEquals(200, response.getStatusCode());
         oauth.verifyToken(response.getAccessToken());
-        oauth.verifyRefreshToken(response.getRefreshToken());
+        oauth.parseRefreshToken(response.getRefreshToken());
         events.expectCodeToToken(loginEvent.getDetails().get(Details.CODE_ID), loginEvent.getSessionId())
                 .client("client2")
                 .detail(Details.CLIENT_AUTH_METHOD, JWTClientAuthenticator.PROVIDER_ID)
@@ -274,7 +270,7 @@ public class ClientAuthSignedJWTTest extends AbstractKeycloakTest {
 
         assertEquals(200, response.getStatusCode());
         AccessToken accessToken = oauth.verifyToken(response.getAccessToken());
-        RefreshToken refreshToken = oauth.verifyRefreshToken(response.getRefreshToken());
+        RefreshToken refreshToken = oauth.parseRefreshToken(response.getRefreshToken());
 
         events.expectLogin()
                 .client("client2")
@@ -348,7 +344,7 @@ public class ClientAuthSignedJWTTest extends AbstractKeycloakTest {
         assertEquals(200, response.getStatusCode());
 
         AccessToken accessToken = oauth.verifyToken(response.getAccessToken());
-        RefreshToken refreshToken = oauth.verifyRefreshToken(response.getRefreshToken());
+        RefreshToken refreshToken = oauth.parseRefreshToken(response.getRefreshToken());
 
         events.expectLogin()
                 .client(client.getClientId())
@@ -536,7 +532,7 @@ public class ClientAuthSignedJWTTest extends AbstractKeycloakTest {
         CloseableHttpResponse resp = sendRequest(oauth.getServiceAccountUrl(), parameters);
         OAuthClient.AccessTokenResponse response = new OAuthClient.AccessTokenResponse(resp);
 
-        assertError(response, "client1", "invalid_client", Errors.CLIENT_DISABLED);
+        assertError(response, "client1", "unauthorized_client", Errors.CLIENT_DISABLED);
 
         ClientManager.realm(adminClient.realm("test")).clientId("client1").enabled(true);
     }
@@ -625,10 +621,30 @@ public class ClientAuthSignedJWTTest extends AbstractKeycloakTest {
         assertError(response, "client1", "unauthorized_client", Errors.INVALID_CLIENT_CREDENTIALS);
     }
 
+
+    @Test
+    public void testAssertionReuse() throws Exception {
+        String clientJwt = getClient1SignedJWT();
+
+        OAuthClient.AccessTokenResponse response = doClientCredentialsGrantRequest(clientJwt);
+
+        assertEquals(200, response.getStatusCode());
+        AccessToken accessToken = oauth.verifyToken(response.getAccessToken());
+        Assert.assertNotNull(accessToken);
+        Assert.assertNull(response.getError());
+
+        // 2nd attempt to reuse same JWT should fail
+        response = doClientCredentialsGrantRequest(clientJwt);
+
+        assertEquals(400, response.getStatusCode());
+        assertEquals("unauthorized_client", response.getError());
+    }
+
+
     @Test
     public void testMissingIdClaim() throws Exception {
         OAuthClient.AccessTokenResponse response = testMissingClaim("id");
-        assertSuccess(response, app1.getClientId(), serviceAccountUser.getId(), serviceAccountUser.getUsername());
+        assertError(response, app1.getClientId(), "unauthorized_client", Errors.INVALID_CLIENT_CREDENTIALS);
     }
 
     @Test
@@ -713,7 +729,7 @@ public class ClientAuthSignedJWTTest extends AbstractKeycloakTest {
         assertEquals(200, response.getStatusCode());
 
         AccessToken accessToken = oauth.verifyToken(response.getAccessToken());
-        RefreshToken refreshToken = oauth.verifyRefreshToken(response.getRefreshToken());
+        RefreshToken refreshToken = oauth.parseRefreshToken(response.getRefreshToken());
 
         events.expectClientLogin()
                 .client(clientId)
@@ -727,6 +743,7 @@ public class ClientAuthSignedJWTTest extends AbstractKeycloakTest {
     }
 
     private static void assertCertificate(ClientRepresentation client, String certOld, String pem) {
+        pem = PemUtils.removeBeginEnd(pem);
         final String certNew = client.getAttributes().get(JWTClientAuthenticator.CERTIFICATE_ATTR);
         assertNotEquals("The old and new certificates shouldn't match", certOld, certNew);
         assertEquals("Certificates don't match", pem, certNew);

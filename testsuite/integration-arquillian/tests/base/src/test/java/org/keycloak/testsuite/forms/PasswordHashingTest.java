@@ -19,64 +19,42 @@ package org.keycloak.testsuite.forms;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.arquillian.graphene.page.Page;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
-import org.junit.Assert;
-import org.junit.Rule;
 import org.junit.Test;
-import org.keycloak.OAuth2Constants;
-import org.keycloak.admin.client.resource.UserResource;
 import org.keycloak.common.util.Base64;
 import org.keycloak.credential.CredentialModel;
+import org.keycloak.credential.hash.Pbkdf2PasswordHashProvider;
 import org.keycloak.credential.hash.Pbkdf2PasswordHashProviderFactory;
 import org.keycloak.credential.hash.Pbkdf2Sha256PasswordHashProviderFactory;
 import org.keycloak.credential.hash.Pbkdf2Sha512PasswordHashProviderFactory;
-import org.keycloak.events.Details;
-import org.keycloak.events.EventType;
-import org.keycloak.models.BrowserSecurityHeaders;
 import org.keycloak.models.RealmModel;
 import org.keycloak.models.UserModel;
-import org.keycloak.models.utils.ModelToRepresentation;
-import org.keycloak.models.utils.RepresentationToModel;
 import org.keycloak.representations.idm.CredentialRepresentation;
 import org.keycloak.representations.idm.ErrorRepresentation;
-import org.keycloak.representations.idm.EventRepresentation;
 import org.keycloak.representations.idm.RealmRepresentation;
 import org.keycloak.representations.idm.UserRepresentation;
 import org.keycloak.testsuite.AbstractTestRealmKeycloakTest;
-import org.keycloak.testsuite.AssertEvents;
 import org.keycloak.testsuite.admin.ApiUtil;
-import org.keycloak.testsuite.client.KeycloakTestingClient;
-import org.keycloak.testsuite.pages.AppPage;
-import org.keycloak.testsuite.pages.AppPage.RequestType;
-import org.keycloak.testsuite.pages.ErrorPage;
+import org.keycloak.testsuite.pages.AccountUpdateProfilePage;
 import org.keycloak.testsuite.pages.LoginPage;
-import org.keycloak.testsuite.pages.LoginPasswordUpdatePage;
 import org.keycloak.testsuite.runonserver.RunOnServerDeployment;
-import org.keycloak.testsuite.util.RealmBuilder;
 import org.keycloak.testsuite.util.UserBuilder;
-import org.keycloak.util.JsonSerialization;
 
 import javax.crypto.SecretKeyFactory;
 import javax.crypto.spec.PBEKeySpec;
 import javax.ws.rs.BadRequestException;
-import javax.ws.rs.InternalServerErrorException;
-import javax.ws.rs.client.Client;
-import javax.ws.rs.client.ClientBuilder;
-import javax.ws.rs.core.Response;
-import java.io.IOException;
-import java.security.NoSuchAlgorithmException;
 import java.security.spec.KeySpec;
-import java.util.Map;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotEquals;
-import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 /**
  * @author <a href="mailto:sthorger@redhat.com">Stian Thorgersen</a>
  */
 public class PasswordHashingTest extends AbstractTestRealmKeycloakTest {
+
+    @Page
+    private AccountUpdateProfilePage updateProfilePage;
 
     @Deployment
     public static WebArchive deploy() {
@@ -146,6 +124,72 @@ public class PasswordHashingTest extends AbstractTestRealmKeycloakTest {
         assertEquals(1, credential.getHashIterations());
         assertEncoded(credential, "password", credential.getSalt(), "PBKDF2WithHmacSHA256", 1);
     }
+
+    // KEYCLOAK-5282
+    @Test
+    public void testPasswordNotRehasedUnchangedIterations() throws Exception {
+        setPasswordPolicy("");
+
+        String username = "testPasswordNotRehasedUnchangedIterations";
+        createUser(username);
+
+        CredentialModel credential = fetchCredentials(username);
+        String credentialId = credential.getId();
+        byte[] salt = credential.getSalt();
+
+        setPasswordPolicy("hashIterations");
+
+        loginPage.open();
+        loginPage.login(username, "password");
+
+        credential = fetchCredentials(username);
+
+        assertEquals(credentialId, credential.getId());
+        assertArrayEquals(salt, credential.getSalt());
+
+        setPasswordPolicy("hashIterations(" + Pbkdf2Sha256PasswordHashProviderFactory.DEFAULT_ITERATIONS + ")");
+
+        updateProfilePage.open();
+        updateProfilePage.logout();
+
+        loginPage.open();
+        loginPage.login(username, "password");
+
+        credential = fetchCredentials(username);
+
+        assertEquals(credentialId, credential.getId());
+        assertArrayEquals(salt, credential.getSalt());
+    }
+
+    @Test
+    public void testPasswordRehashedWhenCredentialImportedWithDifferentKeySize() throws Exception {
+        setPasswordPolicy("hashAlgorithm(" + Pbkdf2Sha512PasswordHashProviderFactory.ID + ") and hashIterations("+ Pbkdf2Sha512PasswordHashProviderFactory.DEFAULT_ITERATIONS + ")");
+
+        String username = "testPasswordRehashedWhenCredentialImportedWithDifferentKeySize";
+        String password = "password";
+
+        // Encode with a specific key size ( 256 instead of default: 512)
+        Pbkdf2PasswordHashProvider specificKeySizeHashProvider = new Pbkdf2PasswordHashProvider(Pbkdf2Sha512PasswordHashProviderFactory.ID,
+                Pbkdf2Sha512PasswordHashProviderFactory.PBKDF2_ALGORITHM,
+                Pbkdf2Sha512PasswordHashProviderFactory.DEFAULT_ITERATIONS,
+                256);
+        String encodedPassword = specificKeySizeHashProvider.encode(password, -1);
+
+        // Create a user with the encoded password, simulating a user import from a different system using a specific key size
+        CredentialRepresentation credentialRepresentation = new CredentialRepresentation();
+        credentialRepresentation.setAlgorithm(Pbkdf2Sha512PasswordHashProviderFactory.PBKDF2_ALGORITHM);
+        credentialRepresentation.setHashedSaltedValue(encodedPassword);
+        UserRepresentation user = UserBuilder.create().username(username).password(encodedPassword).build();
+        ApiUtil.createUserWithAdminClient(adminClient.realm("test"),user);
+
+        loginPage.open();
+        loginPage.login(username, password);
+
+        CredentialModel postLoginCredentials = fetchCredentials(username);
+        assertEquals(encodedPassword.length() * 2, postLoginCredentials.getValue().length());
+
+    }
+
 
     @Test
     public void testPbkdf2Sha1() throws Exception {

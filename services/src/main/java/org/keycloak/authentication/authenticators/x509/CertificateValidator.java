@@ -18,8 +18,10 @@
 
 package org.keycloak.authentication.authenticators.x509;
 
-import org.keycloak.common.util.CRLUtils;
+import org.keycloak.models.KeycloakSession;
+import org.keycloak.utils.CRLUtils;
 import org.keycloak.common.util.OCSPUtils;
+import org.keycloak.models.Constants;
 import org.keycloak.services.ServicesLogger;
 
 import javax.naming.Context;
@@ -44,6 +46,7 @@ import java.security.cert.X509CRL;
 import java.security.cert.X509Certificate;
 import java.security.cert.CertificateException;
 import java.security.cert.CRLException;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Hashtable;
@@ -51,6 +54,10 @@ import java.util.List;
 import java.util.Set;
 import java.util.LinkedList;
 import java.util.ArrayList;
+import java.util.stream.Collectors;
+
+import org.keycloak.saml.common.exceptions.ProcessingException;
+import org.keycloak.saml.processing.core.util.XMLSignatureUtil;
 
 /**
  * @author <a href="mailto:pnalyvayko@agi.com">Peter Nalyvayko</a>
@@ -149,8 +156,11 @@ public class CertificateValidator {
     public static class BouncyCastleOCSPChecker extends OCSPChecker {
 
         private final String responderUri;
-        BouncyCastleOCSPChecker(String responderUri) {
+        private final X509Certificate responderCert;
+
+        BouncyCastleOCSPChecker(String responderUri, X509Certificate responderCert) {
             this.responderUri = responderUri;
+            this.responderCert = responderCert;
         }
 
         @Override
@@ -177,12 +187,13 @@ public class CertificateValidator {
                     String message = String.format("Unable to check certificate revocation status using OCSP.\n%s", e.getMessage());
                     throw new CertPathValidatorException(message, e);
                 }
-                logger.tracef("Responder URI \"%s\" will be used to verify revocation status of the certificate using OCSP", uri.toString());
+                logger.tracef("Responder URI \"%s\" will be used to verify revocation status of the certificate using OCSP with responderCert=%s",
+                        uri.toString(), responderCert);
                 // Obtains the revocation status of a certificate using OCSP.
                 // OCSP responder's certificate is assumed to be the issuer's certificate
                 // certificate.
                 // responderUri overrides the contents (if any) of the certificate's AIA extension
-                ocspRevocationStatus = OCSPUtils.check(cert, issuerCertificate, uri, null, null);
+                ocspRevocationStatus = OCSPUtils.check(cert, issuerCertificate, uri, responderCert, null);
             }
             return ocspRevocationStatus;
         }
@@ -195,6 +206,29 @@ public class CertificateValidator {
         }
         public Collection<X509CRL> getX509CRLs() throws GeneralSecurityException {
             return Collections.singleton(_crl);
+        }
+    }
+
+    // Delegate to list of other CRLLoaders
+    public static class CRLListLoader extends CRLLoaderImpl {
+
+        private final List<CRLLoaderImpl> delegates;
+
+        public CRLListLoader(String cRLConfigValue) {
+            String[] delegatePaths = Constants.CFG_DELIMITER_PATTERN.split(cRLConfigValue);
+            this.delegates = Arrays.stream(delegatePaths)
+                    .map(CRLFileLoader::new)
+                    .collect(Collectors.toList());
+        }
+
+
+        @Override
+        public Collection<X509CRL> getX509CRLs() throws GeneralSecurityException {
+            Collection<X509CRL> result = new LinkedList<>();
+            for (CRLLoaderImpl delegate : delegates) {
+                result.addAll(delegate.getX509CRLs());
+            }
+            return result;
         }
     }
 
@@ -300,7 +334,7 @@ public class CertificateValidator {
                         logger.debugf("Loading CRL from %s", f.getAbsolutePath());
 
                         if (!f.canRead()) {
-                            throw new IOException(String.format("Unable to read CRL from \"%path\"", f.getAbsolutePath()));
+                            throw new IOException(String.format("Unable to read CRL from \"%s\"", f.getAbsolutePath()));
                         }
                         X509CRL crl = loadFromStream(cf, new FileInputStream(f.getAbsolutePath()));
                         return Collections.singleton(crl);
@@ -320,7 +354,7 @@ public class CertificateValidator {
         }
     }
 
-
+    KeycloakSession session;
     X509Certificate[] _certChain;
     int _keyUsageBits;
     List<String> _extendedKeyUsage;
@@ -339,7 +373,8 @@ public class CertificateValidator {
                                    boolean cRLDPCheckingEnabled,
                                    CRLLoaderImpl crlLoader,
                                    boolean oCSPCheckingEnabled,
-                                   OCSPChecker ocspChecker) {
+                                   OCSPChecker ocspChecker,
+                                   KeycloakSession session) {
         _certChain = certChain;
         _keyUsageBits = keyUsageBits;
         _extendedKeyUsage = extendedKeyUsage;
@@ -348,6 +383,7 @@ public class CertificateValidator {
         _crlLoader = crlLoader;
         _ocspEnabled = oCSPCheckingEnabled;
         this.ocspChecker = ocspChecker;
+        this.session = session;
 
         if (ocspChecker == null)
             throw new IllegalArgumentException("ocspChecker");
@@ -463,15 +499,11 @@ public class CertificateValidator {
         }
     }
 
-    private static void checkRevocationStatusUsingCRL(X509Certificate[] certs, CRLLoaderImpl crLoader) throws GeneralSecurityException {
+    private static void checkRevocationStatusUsingCRL(X509Certificate[] certs, CRLLoaderImpl crLoader, KeycloakSession session) throws GeneralSecurityException {
         Collection<X509CRL> crlColl = crLoader.getX509CRLs();
         if (crlColl != null && crlColl.size() > 0) {
             for (X509CRL it : crlColl) {
-                if (it.isRevoked(certs[0])) {
-                    String message = String.format("Certificate has been revoked, certificate's subject: %s", certs[0].getSubjectDN().getName());
-                    logger.debug(message);
-                    throw new GeneralSecurityException(message);
-                }
+                CRLUtils.check(certs, it, session);
             }
         }
     }
@@ -485,7 +517,7 @@ public class CertificateValidator {
         return new ArrayList<>();
     }
 
-    private static void checkRevocationStatusUsingCRLDistributionPoints(X509Certificate[] certs) throws GeneralSecurityException {
+    private static void checkRevocationStatusUsingCRLDistributionPoints(X509Certificate[] certs, KeycloakSession session) throws GeneralSecurityException {
 
         List<String> distributionPoints = getCRLDistributionPoints(certs[0]);
         if (distributionPoints == null || distributionPoints.size() == 0) {
@@ -493,7 +525,7 @@ public class CertificateValidator {
         }
         for (String dp : distributionPoints) {
             logger.tracef("CRL Distribution point: \"%s\"", dp);
-            checkRevocationStatusUsingCRL(certs, new CRLFileLoader(dp));
+            checkRevocationStatusUsingCRL(certs, new CRLFileLoader(dp), session);
         }
     }
 
@@ -503,9 +535,9 @@ public class CertificateValidator {
         }
         if (_crlCheckingEnabled) {
             if (!_crldpEnabled) {
-                checkRevocationStatusUsingCRL(_certChain, _crlLoader /*"crl.pem"*/);
+                checkRevocationStatusUsingCRL(_certChain, _crlLoader, session);
             } else {
-                checkRevocationStatusUsingCRLDistributionPoints(_certChain);
+                checkRevocationStatusUsingCRLDistributionPoints(_certChain, session);
             }
         }
         if (_ocspEnabled) {
@@ -522,6 +554,7 @@ public class CertificateValidator {
         // instances of CertificateValidator type. The design is an adaption of
         // the approach described in http://programmers.stackexchange.com/questions/252067/learning-to-write-dsls-utilities-for-unit-tests-and-am-worried-about-extensablit
 
+        KeycloakSession session;
         int _keyUsageBits;
         List<String> _extendedKeyUsage;
         boolean _crlCheckingEnabled;
@@ -529,6 +562,7 @@ public class CertificateValidator {
         CRLLoaderImpl _crlLoader;
         boolean _ocspEnabled;
         String _responderUri;
+        X509Certificate _responderCert;
 
         public CertificateValidatorBuilder() {
             _extendedKeyUsage = new LinkedList<>();
@@ -663,7 +697,7 @@ public class CertificateValidator {
             public class GotCRLDP {
                 public GotCRLRelativePath cRLrelativePath(String value) {
                     if (value != null)
-                        _crlLoader = new CRLFileLoader(value);
+                        _crlLoader = new CRLListLoader(value);
                     return new GotCRLRelativePath();
                 }
 
@@ -675,11 +709,31 @@ public class CertificateValidator {
             }
 
             public class GotOCSP {
+                public GotOCSP oCSPResponseCertificate(String responderCert) {
+                    if (responderCert != null && !responderCert.isEmpty()) {
+                        try {
+                            _responderCert = XMLSignatureUtil.getX509CertificateFromKeyInfoString(responderCert);
+                            _responderCert.checkValidity();
+                        } catch(CertificateException e) {
+                            logger.warnf("Ignoring invalid certificate: %s", _responderCert);
+                            _responderCert = null;
+                        } catch (ProcessingException e) {
+                            throw new RuntimeException(e);
+                        }
+                    }
+                    return new GotOCSP();
+                }
+
                 public CertificateValidatorBuilder oCSPResponderURI(String responderURI) {
                     _responderUri = responderURI;
                     return _parent;
                 }
             }
+        }
+
+        public CertificateValidatorBuilder session(KeycloakSession session) {
+            this.session = session;
+            return this;
         }
 
         public KeyUsageValidationBuilder keyUsage() {
@@ -699,7 +753,8 @@ public class CertificateValidator {
                  _crlLoader = new CRLFileLoader("");
             }
             return new CertificateValidator(certs, _keyUsageBits, _extendedKeyUsage,
-                    _crlCheckingEnabled, _crldpEnabled, _crlLoader, _ocspEnabled, new BouncyCastleOCSPChecker(_responderUri));
+                    _crlCheckingEnabled, _crldpEnabled, _crlLoader, _ocspEnabled,
+                    new BouncyCastleOCSPChecker(_responderUri, _responderCert), session);
         }
     }
 

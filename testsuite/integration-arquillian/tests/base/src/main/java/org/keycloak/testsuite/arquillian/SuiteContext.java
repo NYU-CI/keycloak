@@ -24,6 +24,7 @@ import java.util.Set;
 
 import org.keycloak.testsuite.arquillian.migration.MigrationContext;
 
+import org.keycloak.testsuite.util.TextFileChecker;
 import java.util.LinkedList;
 import static org.keycloak.testsuite.util.MailServerConfiguration.FROM;
 import static org.keycloak.testsuite.util.MailServerConfiguration.HOST;
@@ -40,11 +41,15 @@ public final class SuiteContext {
     private List<ContainerInfo> authServerInfo = new LinkedList<>();
     private final List<List<ContainerInfo>> authServerBackendsInfo = new ArrayList<>();
 
+    private final List<ContainerInfo> cacheServersInfo = new ArrayList<>();
+
     private ContainerInfo migratedAuthServerInfo;
     private final MigrationContext migrationContext = new MigrationContext();
 
     private boolean adminPasswordUpdated;
     private final Map<String, String> smtpServer = new HashMap<>();
+
+    private TextFileChecker serverLogChecker;
 
     /**
      * True if the testsuite is running in the adapter backward compatibility testing mode,
@@ -58,6 +63,14 @@ public final class SuiteContext {
         smtpServer.put("from", FROM);
         smtpServer.put("host", HOST);
         smtpServer.put("port", PORT);
+    }
+
+    public TextFileChecker getServerLogChecker() {
+        return this.serverLogChecker;
+    }
+
+    public void setServerLogChecker(TextFileChecker serverLogChecker) {
+        this.serverLogChecker = serverLogChecker;
     }
 
     public boolean isAdminPasswordUpdated() {
@@ -96,6 +109,13 @@ public final class SuiteContext {
         this.authServerInfo.set(dcIndex, serverInfo);
     }
 
+    public void addCacheServerInfo(int dcIndex, ContainerInfo serverInfo) {
+        while (dcIndex >= cacheServersInfo.size()) {
+            cacheServersInfo.add(null);
+        }
+        this.cacheServersInfo.set(dcIndex, serverInfo);
+    }
+
     public List<ContainerInfo> getAuthServerBackendsInfo() {
         return getAuthServerBackendsInfo(0);
     }
@@ -106,6 +126,10 @@ public final class SuiteContext {
 
     public List<List<ContainerInfo>> getDcAuthServerBackendsInfo() {
         return authServerBackendsInfo;
+    }
+
+    public List<ContainerInfo> getCacheServersInfo() {
+        return cacheServersInfo;
     }
 
     public void addAuthServerBackendsInfo(int dcIndex, ContainerInfo container) {
@@ -161,12 +185,16 @@ public final class SuiteContext {
                 int dcIndex = i;
                 getDcAuthServerBackendsInfo().get(i).forEach(bInfo -> sb.append("Backend (dc=").append(dcIndex).append("): ").append(bInfo).append("\n"));
             }
+
+            for (int dcIndex=0 ; dcIndex<cacheServersInfo.size() ; dcIndex++) {
+                sb.append("CacheServer (dc=").append(dcIndex).append("): ").append(getCacheServersInfo().get(dcIndex)).append("\n");
+            }
         } else if (isAuthServerCluster()) {
             sb.append(isAuthServerCluster() ? "\nFrontend: " : "")
-              .append(getAuthServerInfo().getQualifier())
+              .append(getAuthServerInfo().getQualifier()).append(" - ").append(getAuthServerInfo().getContextRoot().toExternalForm())
               .append("\n");
 
-            getAuthServerBackendsInfo().forEach(bInfo -> sb.append("  Backend: ").append(bInfo).append("\n"));
+            getAuthServerBackendsInfo().forEach(bInfo -> sb.append("  Backend: ").append(bInfo).append(" - ").append(bInfo.getContextRoot().toExternalForm()).append("\n"));
         } else {
           sb.append(getAuthServerInfo().getQualifier())
             .append("\n");

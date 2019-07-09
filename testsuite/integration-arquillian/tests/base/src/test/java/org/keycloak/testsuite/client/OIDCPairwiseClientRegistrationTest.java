@@ -18,6 +18,8 @@
 package org.keycloak.testsuite.client;
 
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.commons.lang.StringUtils;
 import org.junit.Before;
 import org.junit.Test;
@@ -373,16 +375,16 @@ public class OIDCPairwiseClientRegistrationTest extends AbstractClientRegistrati
         OAuthClient.AccessTokenResponse accessTokenResponse = login(pairwiseClient, "test-user@localhost", "password");
 
         // Verify tokens
-        oauth.verifyRefreshToken(accessTokenResponse.getAccessToken());
+        oauth.parseRefreshToken(accessTokenResponse.getAccessToken());
         IDToken idToken = oauth.verifyIDToken(accessTokenResponse.getIdToken());
-        oauth.verifyRefreshToken(accessTokenResponse.getRefreshToken());
+        oauth.parseRefreshToken(accessTokenResponse.getRefreshToken());
 
         // Refresh token
         OAuthClient.AccessTokenResponse refreshTokenResponse = oauth.doRefreshTokenRequest(accessTokenResponse.getRefreshToken(), pairwiseClient.getClientSecret());
 
         // Verify refreshed tokens
         oauth.verifyToken(refreshTokenResponse.getAccessToken());
-        RefreshToken refreshedRefreshToken = oauth.verifyRefreshToken(refreshTokenResponse.getRefreshToken());
+        RefreshToken refreshedRefreshToken = oauth.parseRefreshToken(refreshTokenResponse.getRefreshToken());
         IDToken refreshedIdToken = oauth.verifyIDToken(refreshTokenResponse.getIdToken());
 
         // If an ID Token is returned as a result of a token refresh request, the following requirements apply:
@@ -395,9 +397,6 @@ public class OIDCPairwiseClientRegistrationTest extends AbstractClientRegistrati
         // its iat Claim MUST represent the time that the new ID Token is issued
         Assert.assertEquals(refreshedIdToken.getIssuedAt(), refreshedRefreshToken.getIssuedAt());
 
-        // its aud Claim Value MUST be the same as in the ID Token issued when the original authentication occurred
-        Assert.assertArrayEquals(idToken.getAudience(), refreshedRefreshToken.getAudience());
-
         // if the ID Token contains an auth_time Claim, its value MUST represent the time of the original authentication
         // - not the time that the new ID token is issued
         Assert.assertEquals(idToken.getAuthTime(), refreshedIdToken.getAuthTime());
@@ -405,6 +404,22 @@ public class OIDCPairwiseClientRegistrationTest extends AbstractClientRegistrati
         // its azp Claim Value MUST be the same as in the ID Token issued when the original authentication occurred; if
         // no azp Claim was present in the original ID Token, one MUST NOT be present in the new ID Token
         Assert.assertEquals(idToken.getIssuedFor(), refreshedIdToken.getIssuedFor());
+    }
+
+    @Test
+    public void introspectPairwiseAccessToken() throws Exception {
+        // Create a pairwise client
+        OIDCClientRepresentation pairwiseClient = createPairwise();
+
+        // Login to pairwise client
+        OAuthClient.AccessTokenResponse accessTokenResponse = login(pairwiseClient, "test-user@localhost", "password");
+
+        String introspectionResponse = oauth.introspectAccessTokenWithClientCredential(pairwiseClient.getClientId(), pairwiseClient.getClientSecret(), accessTokenResponse.getAccessToken());
+
+        ObjectMapper objectMapper = new ObjectMapper();
+        JsonNode jsonNode = objectMapper.readTree(introspectionResponse);
+        Assert.assertEquals(true, jsonNode.get("active").asBoolean());
+        Assert.assertEquals("test-user@localhost", jsonNode.get("email").asText());
     }
 
     @Test

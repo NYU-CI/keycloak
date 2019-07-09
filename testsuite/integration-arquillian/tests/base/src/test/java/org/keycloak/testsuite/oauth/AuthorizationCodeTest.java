@@ -22,6 +22,7 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.keycloak.OAuth2Constants;
 import org.keycloak.OAuthErrorException;
+import org.keycloak.connections.infinispan.InfinispanConnectionProvider;
 import org.keycloak.events.Details;
 import org.keycloak.events.Errors;
 import org.keycloak.models.Constants;
@@ -29,12 +30,14 @@ import org.keycloak.protocol.oidc.utils.OIDCResponseMode;
 import org.keycloak.representations.idm.RealmRepresentation;
 import org.keycloak.testsuite.AbstractKeycloakTest;
 import org.keycloak.testsuite.AssertEvents;
+import org.keycloak.testsuite.pages.PageUtils;
 import org.keycloak.testsuite.util.ClientManager;
 import org.keycloak.testsuite.util.OAuthClient;
 import org.openqa.selenium.By;
 
 import javax.ws.rs.core.UriBuilder;
 import java.io.IOException;
+import java.net.URI;
 import java.util.List;
 
 import static org.junit.Assert.assertEquals;
@@ -73,7 +76,6 @@ public class AuthorizationCodeTest extends AbstractKeycloakTest {
         Assert.assertNull(response.getError());
 
         String codeId = events.expectLogin().assertEvent().getDetails().get(Details.CODE_ID);
-        assertCode(codeId, response.getCode());
     }
 
     @Test
@@ -83,13 +85,12 @@ public class AuthorizationCodeTest extends AbstractKeycloakTest {
 
         oauth.doLogin("test-user@localhost", "password");
 
-        String title = driver.getTitle();
+        String title = PageUtils.getPageTitle(driver);
         Assert.assertEquals("Success code", title);
 
-        String code = driver.findElement(By.id(OAuth2Constants.CODE)).getAttribute("value");
+        driver.findElement(By.id(OAuth2Constants.CODE)).getAttribute("value");
 
-        String codeId = events.expectLogin().detail(Details.REDIRECT_URI, "http://localhost:8180/auth/realms/test/protocol/openid-connect/oauth/oob").assertEvent().getDetails().get(Details.CODE_ID);
-        assertCode(codeId, code);
+        events.expectLogin().detail(Details.REDIRECT_URI, oauth.AUTH_SERVER_ROOT + "/realms/test/protocol/openid-connect/oauth/oob").assertEvent().getDetails().get(Details.CODE_ID);
 
         ClientManager.realm(adminClient.realm("test")).clientId("test-app").removeRedirectUris(Constants.INSTALLED_APP_URN);
     }
@@ -104,7 +105,6 @@ public class AuthorizationCodeTest extends AbstractKeycloakTest {
         Assert.assertNotNull(response.getCode());
 
         String codeId = events.expectLogin().assertEvent().getDetails().get(Details.CODE_ID);
-        assertCode(codeId, response.getCode());
     }
 
     @Test
@@ -119,7 +119,6 @@ public class AuthorizationCodeTest extends AbstractKeycloakTest {
         Assert.assertNull(response.getError());
 
         String codeId = events.expectLogin().assertEvent().getDetails().get(Details.CODE_ID);
-        assertCode(codeId, response.getCode());
     }
 
     @Test
@@ -151,11 +150,51 @@ public class AuthorizationCodeTest extends AbstractKeycloakTest {
         assertEquals("OpenIdConnect.AuthenticationProperties=2302984sdlk", state);
 
         String codeId = events.expectLogin().assertEvent().getDetails().get(Details.CODE_ID);
-        assertCode(codeId, code);
     }
 
-    private void assertCode(String expectedCodeId, String actualCode) {
-        assertEquals(expectedCodeId, actualCode.split("\\.")[2]);
+
+    @Test
+    public void authorizationRequestFormPostResponseModeWithCustomState() throws IOException {
+        oauth.responseMode(OIDCResponseMode.FORM_POST.toString().toLowerCase());
+        oauth.stateParamHardcoded("\"><foo>bar_baz(2)far</foo>");
+        oauth.doLoginGrant("test-user@localhost", "password");
+
+        String sources = driver.getPageSource();
+        System.out.println(sources);
+
+        String code = driver.findElement(By.id("code")).getText();
+        String state = driver.findElement(By.id("state")).getText();
+
+        assertEquals("\"><foo>bar_baz(2)far</foo>", state);
+
+        String codeId = events.expectLogin().assertEvent().getDetails().get(Details.CODE_ID);
+    }
+
+
+    @Test
+    public void authorizationRequestFragmentResponseModeNotKept() throws Exception {
+        // Set response_mode=fragment and login
+        oauth.responseMode(OIDCResponseMode.FRAGMENT.toString().toLowerCase());
+        OAuthClient.AuthorizationEndpointResponse response = oauth.doLogin("test-user@localhost", "password");
+
+        Assert.assertNotNull(response.getCode());
+        Assert.assertNotNull(response.getState());
+
+        URI currentUri = new URI(driver.getCurrentUrl());
+        Assert.assertNull(currentUri.getRawQuery());
+        Assert.assertNotNull(currentUri.getRawFragment());
+
+        // Unset response_mode. The initial OIDC AuthenticationRequest won't contain "response_mode" parameter now and hence it should fallback to "query".
+        oauth.responseMode(null);
+        oauth.openLoginForm();
+        response = new OAuthClient.AuthorizationEndpointResponse(oauth);
+
+        Assert.assertNotNull(response.getCode());
+        Assert.assertNotNull(response.getState());
+
+        currentUri = new URI(driver.getCurrentUrl());
+        Assert.assertNotNull(currentUri.getRawQuery());
+        Assert.assertNull(currentUri.getRawFragment());
     }
 
 }

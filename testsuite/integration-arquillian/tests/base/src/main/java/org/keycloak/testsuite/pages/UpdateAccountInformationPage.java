@@ -39,6 +39,21 @@ public class UpdateAccountInformationPage extends AbstractPage {
         submitButton.click();
     }
 
+    public void updateAccountInformation(String email,
+                                         String firstName,
+                                         String lastName) {
+        emailInput.clear();
+        emailInput.sendKeys(email);
+
+        firstNameInput.clear();
+        firstNameInput.sendKeys(firstName);
+
+        lastNameInput.clear();
+        lastNameInput.sendKeys(lastName);
+
+        submitButton.click();
+    }
+
     public void updateAccountInformation(String firstName,
                                          String lastName) {
         firstNameInput.clear();
@@ -52,7 +67,7 @@ public class UpdateAccountInformationPage extends AbstractPage {
 
     @Override
     public boolean isCurrent() {
-        return driver.getTitle().equalsIgnoreCase("update account information");
+        return PageUtils.getPageTitle(driver).equalsIgnoreCase("update account information");
     }
 
     @Override

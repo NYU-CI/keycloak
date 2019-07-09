@@ -60,7 +60,10 @@ public class X509AuthenticatorConfigModel extends AuthenticatorConfigModel {
         ISSUERDN(MAPPING_SOURCE_CERT_ISSUERDN),
         SUBJECTDN_CN(MAPPING_SOURCE_CERT_SUBJECTDN_CN),
         SUBJECTDN_EMAIL(MAPPING_SOURCE_CERT_SUBJECTDN_EMAIL),
-        SUBJECTDN(MAPPING_SOURCE_CERT_SUBJECTDN);
+        SUBJECTALTNAME_EMAIL(MAPPING_SOURCE_CERT_SUBJECTALTNAME_EMAIL),
+        SUBJECTALTNAME_OTHERNAME(MAPPING_SOURCE_CERT_SUBJECTALTNAME_OTHERNAME),
+        SUBJECTDN(MAPPING_SOURCE_CERT_SUBJECTDN),
+        CERTIFICATE_PEM(MAPPING_SOURCE_CERT_CERTIFICATE_PEM);
 
         private String name;
         MappingSourceType(String name) {
@@ -137,6 +140,19 @@ public class X509AuthenticatorConfigModel extends AuthenticatorConfigModel {
             getConfig().put(OCSPRESPONDER_URI, responderUri);
         } else {
             getConfig().remove(OCSPRESPONDER_URI);
+        }
+        return this;
+    }
+
+    public String getOCSPResponderCertificate() {
+        return getConfig().getOrDefault(OCSPRESPONDER_CERTIFICATE, null);
+    }
+
+    public X509AuthenticatorConfigModel setOCSPResponderCertificate(String responderCert) {
+        if (responderCert != null) {
+            getConfig().put(OCSPRESPONDER_CERTIFICATE, responderCert);
+        } else {
+            getConfig().remove(OCSPRESPONDER_CERTIFICATE);
         }
         return this;
     }
@@ -229,4 +245,12 @@ public class X509AuthenticatorConfigModel extends AuthenticatorConfigModel {
         return this;
     }
 
+    public boolean isCanonicalDnEnabled() {
+        return Boolean.parseBoolean(getConfig().get(CANONICAL_DN));
+    }
+
+    public X509AuthenticatorConfigModel setCanonicalDnEnabled(boolean value) {
+        getConfig().put(CANONICAL_DN, Boolean.toString(value));
+        return this;
+    }
 }

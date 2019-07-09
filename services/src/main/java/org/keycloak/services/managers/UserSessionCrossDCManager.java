@@ -17,14 +17,15 @@
 
 package org.keycloak.services.managers;
 
-import java.util.Map;
+import java.util.AbstractMap.SimpleEntry;
+import java.util.List;
+import java.util.Objects;
 
 import org.jboss.logging.Logger;
 import org.keycloak.models.AuthenticatedClientSessionModel;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.RealmModel;
 import org.keycloak.models.UserSessionModel;
-import org.keycloak.sessions.CommonClientSessionModel;
 
 /**
  * @author <a href="mailto:mposolda@redhat.com">Marek Posolda</a>
@@ -42,37 +43,42 @@ public class UserSessionCrossDCManager {
 
     // get userSession if it has "authenticatedClientSession" of specified client attached to it. Otherwise download it from remoteCache
     public UserSessionModel getUserSessionWithClient(RealmModel realm, String id, boolean offline, String clientUUID) {
-        return kcSession.sessions().getUserSessionWithPredicate(realm, id, offline, userSession -> userSession.getAuthenticatedClientSessions().containsKey(clientUUID));
+        return kcSession.sessions().getUserSessionWithPredicate(realm, id, offline, userSession -> userSession.getAuthenticatedClientSessionByClient(clientUUID) != null);
     }
 
 
-    // get userSession if it has "authenticatedClientSession" of specified client attached to it and there is "CODE_TO_TOKEN" action. Otherwise download it from remoteCache
+    // get userSession if it has "authenticatedClientSession" of specified client attached to it. Otherwise download it from remoteCache
     // TODO Probably remove this method once AuthenticatedClientSession.getAction is removed and information is moved to OAuth code JWT instead
-    public UserSessionModel getUserSessionWithClientAndCodeToTokenAction(RealmModel realm, String id, String clientUUID) {
+    public UserSessionModel getUserSessionWithClient(RealmModel realm, String id, String clientUUID) {
 
         return kcSession.sessions().getUserSessionWithPredicate(realm, id, false, (UserSessionModel userSession) -> {
 
-            Map<String, AuthenticatedClientSessionModel> authSessions = userSession.getAuthenticatedClientSessions();
-            if (!authSessions.containsKey(clientUUID)) {
-                return false;
-            }
-
-            AuthenticatedClientSessionModel authSession = authSessions.get(clientUUID);
-            return CommonClientSessionModel.Action.CODE_TO_TOKEN.toString().equals(authSession.getAction());
+            AuthenticatedClientSessionModel authSessions = userSession.getAuthenticatedClientSessionByClient(clientUUID);
+            return authSessions != null;
 
         });
     }
 
 
     // Just check if userSession also exists on remoteCache. It can happen that logout happened on 2nd DC and userSession is already removed on remoteCache and this DC wasn't yet notified
-    public UserSessionModel getUserSessionIfExistsRemotely(RealmModel realm, String id) {
-        UserSessionModel userSession = kcSession.sessions().getUserSession(realm, id);
+    public UserSessionModel getUserSessionIfExistsRemotely(AuthenticationSessionManager asm, RealmModel realm) {
+        List<String> sessionCookies = asm.getAuthSessionCookies(realm);
 
-        // This will remove userSession "locally" if it doesn't exists on remoteCache
-        kcSession.sessions().getUserSessionWithPredicate(realm, id, false, (UserSessionModel userSession2) -> {
-            return userSession2 == null;
-        });
+        return sessionCookies.stream().map(oldEncodedId -> {
+            AuthSessionId authSessionId = asm.decodeAuthSessionId(oldEncodedId);
+            String sessionId = authSessionId.getDecodedId();
 
-        return kcSession.sessions().getUserSession(realm, id);
+            // This will remove userSession "locally" if it doesn't exists on remoteCache
+            kcSession.sessions().getUserSessionWithPredicate(realm, sessionId, false, (UserSessionModel userSession2) -> userSession2 == null);
+
+            UserSessionModel userSession = kcSession.sessions().getUserSession(realm, sessionId);
+
+            if (userSession != null) {
+                asm.reencodeAuthSessionCookie(oldEncodedId, authSessionId, realm);
+                return userSession;
+            }
+
+            return null;
+        }).filter(userSession -> Objects.nonNull(userSession)).findFirst().orElse(null);
     }
 }

@@ -20,6 +20,7 @@ import org.keycloak.representations.idm.authorization.JSPolicyRepresentation;
 import org.keycloak.representations.idm.authorization.Logic;
 import org.keycloak.testsuite.console.page.fragment.ModalDialog;
 import org.keycloak.testsuite.page.Form;
+import org.keycloak.testsuite.util.UIUtils;
 import org.openqa.selenium.JavascriptExecutor;
 import org.openqa.selenium.WebElement;
 import org.openqa.selenium.support.FindBy;
@@ -45,16 +46,18 @@ public class JSPolicyForm extends Form {
     @FindBy(xpath = "//div[@class='modal-dialog']")
     protected ModalDialog modalDialog;
 
-    public void populate(JSPolicyRepresentation expected) {
-        setInputValue(name, expected.getName());
-        setInputValue(description, expected.getDescription());
+    public void populate(JSPolicyRepresentation expected, boolean save) {
+        UIUtils.setTextInputValue(name, expected.getName());
+        UIUtils.setTextInputValue(description, expected.getDescription());
         logic.selectByValue(expected.getLogic().name());
 
         JavascriptExecutor scriptExecutor = (JavascriptExecutor) driver;
 
         scriptExecutor.executeScript("angular.element(document.getElementById('code')).scope().policy.code = '" + expected.getCode() + "'");
 
-        save();
+        if (save) {
+            save();
+        }
     }
 
     public void delete() {
@@ -65,9 +68,9 @@ public class JSPolicyForm extends Form {
     public JSPolicyRepresentation toRepresentation() {
         JSPolicyRepresentation representation = new JSPolicyRepresentation();
 
-        representation.setName(getInputValue(name));
-        representation.setDescription(getInputValue(description));
-        representation.setLogic(Logic.valueOf(logic.getFirstSelectedOption().getText().toUpperCase()));
+        representation.setName(UIUtils.getTextInputValue(name));
+        representation.setDescription(UIUtils.getTextInputValue(description));
+        representation.setLogic(Logic.valueOf(UIUtils.getTextFromElement(logic.getFirstSelectedOption()).toUpperCase()));
 
         JavascriptExecutor scriptExecutor = (JavascriptExecutor) driver;
 

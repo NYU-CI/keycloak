@@ -17,8 +17,8 @@
 package org.keycloak.services.resources;
 
 import org.jboss.logging.Logger;
-import org.keycloak.Config;
 import org.keycloak.common.ClientConnection;
+import org.keycloak.common.Version;
 import org.keycloak.common.util.Base64Url;
 import org.keycloak.common.util.MimeTypeUtil;
 import org.keycloak.models.BrowserSecurityHeaders;
@@ -26,13 +26,13 @@ import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.utils.KeycloakModelUtils;
 import org.keycloak.services.ForbiddenException;
 import org.keycloak.services.ServicesLogger;
+import org.keycloak.services.Urls;
 import org.keycloak.services.managers.ApplianceBootstrap;
 import org.keycloak.services.util.CacheControlUtil;
 import org.keycloak.services.util.CookieHelper;
 import org.keycloak.theme.BrowserSecurityHeaderSetup;
 import org.keycloak.theme.FreeMarkerUtil;
 import org.keycloak.theme.Theme;
-import org.keycloak.theme.ThemeProvider;
 import org.keycloak.utils.MediaType;
 
 import javax.ws.rs.Consumes;
@@ -49,7 +49,6 @@ import javax.ws.rs.core.MultivaluedMap;
 import javax.ws.rs.core.Response;
 import javax.ws.rs.core.Response.ResponseBuilder;
 import javax.ws.rs.core.Response.Status;
-import javax.ws.rs.core.UriInfo;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.InetAddress;
@@ -67,15 +66,12 @@ public class WelcomeResource {
 
     protected static final Logger logger = Logger.getLogger(WelcomeResource.class);
 
-    private static final String KEYCLOAK_STATE_CHECKER = "KEYCLOAK_STATE_CHECKER";
+    private static final String KEYCLOAK_STATE_CHECKER = "WELCOME_STATE_CHECKER";
 
     private boolean bootstrap;
 
     @Context
     protected HttpHeaders headers;
-
-    @Context
-    private UriInfo uriInfo;
 
     @Context
     private KeycloakSession session;
@@ -95,7 +91,7 @@ public class WelcomeResource {
     public Response getWelcomePage() throws URISyntaxException {
         checkBootstrap();
 
-        String requestUri = uriInfo.getRequestUri().toString();
+        String requestUri = session.getContext().getUri().getRequestUri().toString();
         if (!requestUri.endsWith("/")) {
             return Response.seeOther(new URI(requestUri + "/")).build();
         } else {
@@ -105,6 +101,7 @@ public class WelcomeResource {
 
     @POST
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    @Produces(MediaType.TEXT_HTML_UTF_8)
     public Response createUser(final MultivaluedMap<String, String> formData) {
         checkBootstrap();
 
@@ -116,13 +113,15 @@ public class WelcomeResource {
                 throw new WebApplicationException(Response.Status.BAD_REQUEST);
             }
 
-            String cookieStateChecker = getCsrfCookie();
-            String formStateChecker = formData.getFirst("stateChecker");
-            csrfCheck(cookieStateChecker, formStateChecker);
+            csrfCheck(formData);
 
             String username = formData.getFirst("username");
             String password = formData.getFirst("password");
             String passwordConfirmation = formData.getFirst("passwordConfirmation");
+
+            if (username != null) {
+                username = username.trim();
+            }
 
             if (username == null || username.length() == 0) {
                 return createWelcomePage(null, "Username is missing");
@@ -135,6 +134,8 @@ public class WelcomeResource {
             if (!password.equals(passwordConfirmation)) {
                 return createWelcomePage(null, "Password and confirmation doesn't match");
             }
+
+            expireCsrfCookie();
 
             ApplianceBootstrap applianceBootstrap = new ApplianceBootstrap(session);
             if (applianceBootstrap.isNoMasterUser()) {
@@ -176,14 +177,26 @@ public class WelcomeResource {
 
     private Response createWelcomePage(String successMessage, String errorMessage) {
         try {
-            Map<String, Object> map = new HashMap<>();
-            map.put("bootstrap", bootstrap);
+          Theme theme = getTheme();
+
+          Map<String, Object> map = new HashMap<>();
+
+          map.put("productName", Version.NAME);
+          map.put("productNameFull", Version.NAME_FULL);
+
+          map.put("properties", theme.getProperties());
+
+          URI uri = Urls.themeRoot(session.getContext().getUri().getBaseUri());
+          String resourcesPath = uri.getPath() + "/" + theme.getType().toString().toLowerCase() +"/" + theme.getName();
+          map.put("resourcesPath", resourcesPath);
+
+           map.put("bootstrap", bootstrap);
             if (bootstrap) {
                 boolean isLocal = isLocal();
                 map.put("localUser", isLocal);
 
                 if (isLocal) {
-                    String stateChecker = updateCsrfChecks();
+                    String stateChecker = setCsrfCookie();
                     map.put("stateChecker", stateChecker);
                 }
             }
@@ -194,7 +207,7 @@ public class WelcomeResource {
                 map.put("errorMessage", errorMessage);
             }
             FreeMarkerUtil freeMarkerUtil = new FreeMarkerUtil();
-            String result = freeMarkerUtil.processTemplate(map, "index.ftl", getTheme());
+            String result = freeMarkerUtil.processTemplate(map, "index.ftl", theme);
 
             ResponseBuilder rb = Response.status(errorMessage == null ? Status.OK : Status.BAD_REQUEST)
                     .entity(result)
@@ -207,10 +220,8 @@ public class WelcomeResource {
     }
 
     private Theme getTheme() {
-        Config.Scope config = Config.scope("theme");
-        ThemeProvider themeProvider = session.getProvider(ThemeProvider.class, "extending");
         try {
-            return themeProvider.getTheme(config.get("welcomeTheme"), Theme.Type.WELCOME);
+            return session.theme().getTheme(Theme.Type.WELCOME);
         } catch (IOException e) {
             throw new WebApplicationException(Response.Status.INTERNAL_SERVER_ERROR);
         }
@@ -242,25 +253,29 @@ public class WelcomeResource {
         return inetAddress.isAnyLocalAddress() || inetAddress.isLoopbackAddress();
     }
 
-    private String updateCsrfChecks() {
-        String stateChecker = getCsrfCookie();
-        if (stateChecker != null) {
-            return stateChecker;
-        } else {
-            stateChecker = Base64Url.encode(KeycloakModelUtils.generateSecret());
-            String cookiePath = uriInfo.getPath();
-            boolean secureOnly = uriInfo.getRequestUri().getScheme().equalsIgnoreCase("https");
-            CookieHelper.addCookie(KEYCLOAK_STATE_CHECKER, stateChecker, cookiePath, null, null, -1, secureOnly, true);
-            return stateChecker;
-        }
+    private String setCsrfCookie() {
+        String stateChecker = Base64Url.encode(KeycloakModelUtils.generateSecret());
+        String cookiePath = session.getContext().getUri().getPath();
+        boolean secureOnly = session.getContext().getUri().getRequestUri().getScheme().equalsIgnoreCase("https");
+        CookieHelper.addCookie(KEYCLOAK_STATE_CHECKER, stateChecker, cookiePath, null, null, 300, secureOnly, true);
+        return stateChecker;
     }
 
-    private String getCsrfCookie() {
+    private void expireCsrfCookie() {
+        String cookiePath = session.getContext().getUri().getPath();
+        boolean secureOnly = session.getContext().getUri().getRequestUri().getScheme().equalsIgnoreCase("https");
+        CookieHelper.addCookie(KEYCLOAK_STATE_CHECKER, "", cookiePath, null, null, 0, secureOnly, true);
+    }
+
+    private void csrfCheck(final MultivaluedMap<String, String> formData) {
+        String formStateChecker = formData.getFirst("stateChecker");
         Cookie cookie = headers.getCookies().get(KEYCLOAK_STATE_CHECKER);
-        return cookie==null ? null : cookie.getValue();
-    }
+        if (cookie == null) {
+            throw new ForbiddenException();
+        }
 
-    private void csrfCheck(String cookieStateChecker, String formStateChecker) {
+        String cookieStateChecker = cookie.getValue();
+
         if (cookieStateChecker == null || !cookieStateChecker.equals(formStateChecker)) {
             throw new ForbiddenException();
         }

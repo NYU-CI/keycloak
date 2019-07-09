@@ -51,6 +51,8 @@ public interface UserProvider extends Provider,
     void updateConsent(RealmModel realm, String userId, UserConsentModel consent);
     boolean revokeConsentForClient(RealmModel realm, String userId, String clientInternalId);
 
+    void setNotBeforeForUser(RealmModel realm, UserModel user, int notBefore);
+    int getNotBeforeOfUser(RealmModel realm, UserModel user);
 
     UserModel getServiceAccount(ClientModel client);
     List<UserModel> getUsers(RealmModel realm, boolean includeServiceAccounts);
@@ -90,6 +92,7 @@ public interface UserProvider extends Provider,
 
     void preRemove(RealmModel realm, ClientModel client);
     void preRemove(ProtocolMapperModel protocolMapper);
+    void preRemove(ClientScopeModel clientScope);
 
     void close();
 

@@ -102,20 +102,30 @@ public class AuthenticatedActionsHandler {
         KeycloakSecurityContext securityContext = facade.getSecurityContext();
         String origin = facade.getRequest().getHeader(CorsHeaders.ORIGIN);
         String exposeHeaders = deployment.getCorsExposedHeaders();
+
+        if (deployment.getPolicyEnforcer() != null) {
+            if (exposeHeaders != null) {
+                exposeHeaders += ",";
+            } else {
+                exposeHeaders = "";
+            }
+
+            exposeHeaders += "WWW-Authenticate";
+        }
+
         String requestOrigin = UriUtils.getOrigin(facade.getRequest().getURI());
         log.debugv("Origin: {0} uri: {1}", origin, facade.getRequest().getURI());
         if (securityContext != null && origin != null && !origin.equals(requestOrigin)) {
             AccessToken token = securityContext.getToken();
             Set<String> allowedOrigins = token.getAllowedOrigins();
-            if (log.isDebugEnabled()) {
-                for (String a : allowedOrigins) log.debug("   " + a);
-            }
+
+            log.debugf("Allowed origins in token: %s", allowedOrigins);
+
             if (allowedOrigins == null || (!allowedOrigins.contains("*") && !allowedOrigins.contains(origin))) {
                 if (allowedOrigins == null) {
                     log.debugv("allowedOrigins was null in token");
                 } else {
                     log.debugv("allowedOrigins did not contain origin");
-
                 }
                 facade.getResponse().sendError(403);
                 facade.getResponse().end();
@@ -148,11 +158,9 @@ public class AuthenticatedActionsHandler {
 
             if (session != null) {
                 session.setAuthorizationContext(authorizationContext);
-
-                return authorizationContext.isGranted();
             }
 
-            return true;
+            return authorizationContext.isGranted();
         } catch (Exception e) {
             throw new RuntimeException("Failed to enforce policy decisions.", e);
         }

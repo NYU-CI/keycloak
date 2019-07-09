@@ -16,14 +16,12 @@
  */
 package org.keycloak.testsuite.authz;
 
-import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.fail;
 
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
-import java.util.function.Predicate;
 
 import org.junit.Before;
 import org.junit.Test;
@@ -33,20 +31,16 @@ import org.keycloak.admin.client.resource.ClientsResource;
 import org.keycloak.admin.client.resource.RealmResource;
 import org.keycloak.authorization.client.AuthorizationDeniedException;
 import org.keycloak.authorization.client.AuthzClient;
-import org.keycloak.authorization.client.Configuration;
-import org.keycloak.authorization.client.representation.AuthorizationRequest;
-import org.keycloak.authorization.client.representation.AuthorizationResponse;
-import org.keycloak.authorization.client.representation.PermissionRequest;
-import org.keycloak.authorization.client.util.HttpResponseException;
 import org.keycloak.representations.idm.GroupRepresentation;
 import org.keycloak.representations.idm.RealmRepresentation;
 import org.keycloak.representations.idm.RoleRepresentation;
 import org.keycloak.representations.idm.UserRepresentation;
-import org.keycloak.representations.idm.authorization.JSPolicyRepresentation;
+import org.keycloak.representations.idm.authorization.AuthorizationRequest;
+import org.keycloak.representations.idm.authorization.AuthorizationResponse;
+import org.keycloak.representations.idm.authorization.PermissionRequest;
 import org.keycloak.representations.idm.authorization.ResourcePermissionRepresentation;
 import org.keycloak.representations.idm.authorization.ResourceRepresentation;
 import org.keycloak.representations.idm.authorization.RolePolicyRepresentation;
-import org.keycloak.testsuite.AbstractKeycloakTest;
 import org.keycloak.testsuite.util.AdminClientUtil;
 import org.keycloak.testsuite.util.ClientBuilder;
 import org.keycloak.testsuite.util.GroupBuilder;
@@ -54,12 +48,11 @@ import org.keycloak.testsuite.util.RealmBuilder;
 import org.keycloak.testsuite.util.RoleBuilder;
 import org.keycloak.testsuite.util.RolesBuilder;
 import org.keycloak.testsuite.util.UserBuilder;
-import org.keycloak.util.JsonSerialization;
 
 /**
  * @author <a href="mailto:psilva@redhat.com">Pedro Igor</a>
  */
-public class RolePolicyTest extends AbstractKeycloakTest {
+public class RolePolicyTest extends AbstractAuthzTest {
 
     @Override
     public void addTestRealms(List<RealmRepresentation> testRealms) {
@@ -102,24 +95,19 @@ public class RolePolicyTest extends AbstractKeycloakTest {
     @Test
     public void testUserWithExpectedRole() {
         AuthzClient authzClient = getAuthzClient();
-        PermissionRequest request = new PermissionRequest();
+        PermissionRequest request = new PermissionRequest("Resource A");
 
-        request.setResourceSetName("Resource A");
-
-        String ticket = authzClient.protection().permission().forResource(request).getTicket();
+        String ticket = authzClient.protection().permission().create(request).getTicket();
         AuthorizationResponse response = authzClient.authorization("marta", "password").authorize(new AuthorizationRequest(ticket));
 
-        assertNotNull(response.getRpt());
+        assertNotNull(response.getToken());
     }
 
     @Test
     public void testUserWithoutExpectedRole() {
         AuthzClient authzClient = getAuthzClient();
-        PermissionRequest request = new PermissionRequest();
-
-        request.setResourceSetName("Resource A");
-
-        String ticket = authzClient.protection().permission().forResource(request).getTicket();
+        PermissionRequest request = new PermissionRequest("Resource A");
+        String ticket = authzClient.protection().permission().create(request).getTicket();
 
         try {
             authzClient.authorization("kolo", "password").authorize(new AuthorizationRequest(ticket));
@@ -128,16 +116,16 @@ public class RolePolicyTest extends AbstractKeycloakTest {
 
         }
 
-        request.setResourceSetName("Resource B");
-        ticket = authzClient.protection().permission().forResource(request).getTicket();
+        request.setResourceId("Resource B");
+        ticket = authzClient.protection().permission().create(request).getTicket();
         assertNotNull(authzClient.authorization("kolo", "password").authorize(new AuthorizationRequest(ticket)));
 
         UserRepresentation user = getRealm().users().search("kolo").get(0);
         RoleRepresentation roleA = getRealm().roles().get("Role A").toRepresentation();
         getRealm().users().get(user.getId()).roles().realmLevel().add(Arrays.asList(roleA));
 
-        request.setResourceSetName("Resource A");
-        ticket = authzClient.protection().permission().forResource(request).getTicket();
+        request.setResourceId("Resource A");
+        ticket = authzClient.protection().permission().create(request).getTicket();
         assertNotNull(authzClient.authorization("kolo", "password").authorize(new AuthorizationRequest(ticket)));
     }
 
@@ -146,9 +134,9 @@ public class RolePolicyTest extends AbstractKeycloakTest {
         AuthzClient authzClient = getAuthzClient();
         PermissionRequest request = new PermissionRequest();
 
-        request.setResourceSetName("Resource C");
+        request.setResourceId("Resource C");
 
-        String ticket = authzClient.protection().permission().forResource(request).getTicket();
+        String ticket = authzClient.protection().permission().create(request).getTicket();
         assertNotNull(authzClient.authorization("alice", "password").authorize(new AuthorizationRequest(ticket)));
 
         UserRepresentation user = getRealm().users().search("alice").get(0);
@@ -162,8 +150,8 @@ public class RolePolicyTest extends AbstractKeycloakTest {
 
         }
 
-        request.setResourceSetName("Resource A");
-        ticket = authzClient.protection().permission().forResource(request).getTicket();
+        request.setResourceId("Resource A");
+        ticket = authzClient.protection().permission().create(request).getTicket();
 
         try {
             authzClient.authorization("alice", "password").authorize(new AuthorizationRequest(ticket));
@@ -187,7 +175,7 @@ public class RolePolicyTest extends AbstractKeycloakTest {
             policy.addRole(role);
         }
 
-        getClient().authorization().policies().role().create(policy);
+        getClient().authorization().policies().role().create(policy).close();
     }
 
     private void createResourcePermission(String name, String resource, String... policies) {
@@ -197,19 +185,19 @@ public class RolePolicyTest extends AbstractKeycloakTest {
         permission.addResource(resource);
         permission.addPolicy(policies);
 
-        getClient().authorization().permissions().resource().create(permission);
+        getClient().authorization().permissions().resource().create(permission).close();
     }
 
     private void createResource(String name) {
         AuthorizationResource authorization = getClient().authorization();
         ResourceRepresentation resource = new ResourceRepresentation(name);
 
-        authorization.resources().create(resource);
+        authorization.resources().create(resource).close();
     }
 
     private RealmResource getRealm() {
         try {
-            return AdminClientUtil.createAdminClient().realm("authz-test");
+            return getAdminClient().realm("authz-test");
         } catch (Exception e) {
             throw new RuntimeException("Failed to create admin client");
         }
@@ -221,11 +209,7 @@ public class RolePolicyTest extends AbstractKeycloakTest {
     }
 
     private AuthzClient getAuthzClient() {
-        try {
-            return AuthzClient.create(JsonSerialization.readValue(getClass().getResourceAsStream("/authorization-test/default-keycloak.json"), Configuration.class));
-        } catch (IOException cause) {
-            throw new RuntimeException("Failed to create authz client", cause);
-        }
+        return AuthzClient.create(getClass().getResourceAsStream("/authorization-test/default-keycloak.json"));
     }
 
     private ClientResource getClient() {

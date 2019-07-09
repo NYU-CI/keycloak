@@ -18,15 +18,17 @@ package org.keycloak.authorization.policy.provider.group;
 
 import static org.keycloak.models.utils.ModelToRepresentation.buildGroupPath;
 
-import java.util.function.Function;
+import java.util.List;
+import java.util.function.BiFunction;
 
+import org.keycloak.authorization.AuthorizationProvider;
 import org.keycloak.authorization.attribute.Attributes;
+import org.keycloak.authorization.attribute.Attributes.Entry;
 import org.keycloak.authorization.model.Policy;
 import org.keycloak.authorization.policy.evaluation.Evaluation;
 import org.keycloak.authorization.policy.provider.PolicyProvider;
 import org.keycloak.models.GroupModel;
 import org.keycloak.models.RealmModel;
-import org.keycloak.models.utils.ModelToRepresentation;
 import org.keycloak.representations.idm.authorization.GroupPolicyRepresentation;
 
 /**
@@ -34,20 +36,22 @@ import org.keycloak.representations.idm.authorization.GroupPolicyRepresentation;
  */
 public class GroupPolicyProvider implements PolicyProvider {
 
-    private final Function<Policy, GroupPolicyRepresentation> representationFunction;
+    private final BiFunction<Policy, AuthorizationProvider, GroupPolicyRepresentation> representationFunction;
 
-    public GroupPolicyProvider(Function<Policy, GroupPolicyRepresentation> representationFunction) {
+    public GroupPolicyProvider(BiFunction<Policy, AuthorizationProvider, GroupPolicyRepresentation> representationFunction) {
         this.representationFunction = representationFunction;
     }
 
     @Override
     public void evaluate(Evaluation evaluation) {
-        GroupPolicyRepresentation policy = representationFunction.apply(evaluation.getPolicy());
-        RealmModel realm = evaluation.getAuthorizationProvider().getRealm();
+        AuthorizationProvider authorizationProvider = evaluation.getAuthorizationProvider();
+        GroupPolicyRepresentation policy = representationFunction.apply(evaluation.getPolicy(), authorizationProvider);
+        RealmModel realm = authorizationProvider.getRealm();
         Attributes.Entry groupsClaim = evaluation.getContext().getIdentity().getAttributes().getValue(policy.getGroupsClaim());
 
         if (groupsClaim == null || groupsClaim.isEmpty()) {
-            return;
+            List<String> userGroups = evaluation.getRealm().getUserGroups(evaluation.getContext().getIdentity().getId());
+            groupsClaim = new Entry(policy.getGroupsClaim(), userGroups);
         }
 
         for (GroupPolicyRepresentation.GroupDefinition definition : policy.getGroups()) {

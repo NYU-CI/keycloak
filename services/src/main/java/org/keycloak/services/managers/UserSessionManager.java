@@ -20,6 +20,7 @@ import org.jboss.logging.Logger;
 import org.keycloak.common.util.Time;
 import org.keycloak.models.AuthenticatedClientSessionModel;
 import org.keycloak.models.ClientModel;
+import org.keycloak.models.ClientSessionContext;
 import org.keycloak.models.Constants;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.RealmModel;
@@ -63,7 +64,7 @@ public class UserSessionManager {
         }
 
         // Create and persist clientSession
-        AuthenticatedClientSessionModel offlineClientSession = offlineUserSession.getAuthenticatedClientSessions().get(clientSession.getClient().getId());
+        AuthenticatedClientSessionModel offlineClientSession = offlineUserSession.getAuthenticatedClientSessionByClient(clientSession.getClient().getId());
         if (offlineClientSession == null) {
             createOfflineClientSession(user, clientSession, offlineUserSession);
         }
@@ -97,14 +98,14 @@ public class UserSessionManager {
         List<UserSessionModel> userSessions = kcSession.sessions().getOfflineUserSessions(realm, user);
         boolean anyRemoved = false;
         for (UserSessionModel userSession : userSessions) {
-            AuthenticatedClientSessionModel clientSession = userSession.getAuthenticatedClientSessions().get(client.getId());
+            AuthenticatedClientSessionModel clientSession = userSession.getAuthenticatedClientSessionByClient(client.getId());
             if (clientSession != null) {
                 if (logger.isTraceEnabled()) {
                     logger.tracef("Removing existing offline token for user '%s' and client '%s' .",
                             user.getUsername(), client.getClientId());
                 }
 
-                clientSession.setUserSession(null);
+                clientSession.detachFromUserSession();
                 persister.removeClientSession(userSession.getId(), client.getId(), true);
                 checkOfflineUserSessionHasClientSessions(realm, user, userSession);
                 anyRemoved = true;
@@ -122,14 +123,15 @@ public class UserSessionManager {
         persister.removeUserSession(userSession.getId(), true);
     }
 
-    public boolean isOfflineTokenAllowed(AuthenticatedClientSessionModel clientSession) {
-        RoleModel offlineAccessRole = clientSession.getRealm().getRole(Constants.OFFLINE_ACCESS_ROLE);
+    public boolean isOfflineTokenAllowed(ClientSessionContext clientSessionCtx) {
+        RoleModel offlineAccessRole = clientSessionCtx.getClientSession().getRealm().getRole(Constants.OFFLINE_ACCESS_ROLE);
         if (offlineAccessRole == null) {
             ServicesLogger.LOGGER.roleNotInRealm(Constants.OFFLINE_ACCESS_ROLE);
             return false;
         }
 
-        return clientSession.getRoles().contains(offlineAccessRole.getId());
+        // Check if offline_access is allowed here. Even through composite roles
+        return clientSessionCtx.getRoles().contains(offlineAccessRole);
     }
 
     private UserSessionModel createOfflineUserSession(UserModel user, UserSessionModel userSession) {
@@ -154,7 +156,8 @@ public class UserSessionManager {
 
     // Check if userSession has any offline clientSessions attached to it. Remove userSession if not
     private void checkOfflineUserSessionHasClientSessions(RealmModel realm, UserModel user, UserSessionModel userSession) {
-        if (userSession.getAuthenticatedClientSessions().size() > 0) {
+        // TODO: Might need optimization to prevent loading client sessions from cache
+        if (! userSession.getAuthenticatedClientSessions().isEmpty()) {
             return;
         }
 

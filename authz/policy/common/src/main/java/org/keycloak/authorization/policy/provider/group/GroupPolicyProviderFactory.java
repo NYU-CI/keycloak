@@ -30,15 +30,12 @@ import org.keycloak.authorization.AuthorizationProvider;
 import org.keycloak.authorization.model.Policy;
 import org.keycloak.authorization.policy.provider.PolicyProvider;
 import org.keycloak.authorization.policy.provider.PolicyProviderFactory;
-import org.keycloak.models.ClientModel;
 import org.keycloak.models.GroupModel;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.KeycloakSessionFactory;
-import org.keycloak.models.RoleModel;
 import org.keycloak.models.utils.ModelToRepresentation;
 import org.keycloak.representations.idm.authorization.GroupPolicyRepresentation;
 import org.keycloak.representations.idm.authorization.PolicyRepresentation;
-import org.keycloak.representations.idm.authorization.RolePolicyRepresentation;
 import org.keycloak.util.JsonSerialization;
 
 /**
@@ -46,7 +43,7 @@ import org.keycloak.util.JsonSerialization;
  */
 public class GroupPolicyProviderFactory implements PolicyProviderFactory<GroupPolicyRepresentation> {
 
-    private GroupPolicyProvider provider = new GroupPolicyProvider(policy -> toRepresentation(policy, new GroupPolicyRepresentation()));
+    private GroupPolicyProvider provider = new GroupPolicyProvider(this::toRepresentation);
 
     @Override
     public String getId() {
@@ -74,8 +71,11 @@ public class GroupPolicyProviderFactory implements PolicyProviderFactory<GroupPo
     }
 
     @Override
-    public GroupPolicyRepresentation toRepresentation(Policy policy, GroupPolicyRepresentation representation) {
+    public GroupPolicyRepresentation toRepresentation(Policy policy, AuthorizationProvider authorization) {
+        GroupPolicyRepresentation representation = new GroupPolicyRepresentation();
+
         representation.setGroupsClaim(policy.getConfig().get("groupsClaim"));
+
         try {
             representation.setGroups(getGroupsDefinition(policy.getConfig()));
         } catch (IOException cause) {
@@ -109,19 +109,24 @@ public class GroupPolicyProviderFactory implements PolicyProviderFactory<GroupPo
     }
 
     @Override
-    public void onExport(Policy policy, PolicyRepresentation representation, AuthorizationProvider authorizationProvider) {
+    public void onExport(Policy policy, PolicyRepresentation representation, AuthorizationProvider authorization) {
         Map<String, String> config = new HashMap<>();
-        GroupPolicyRepresentation groupPolicy = toRepresentation(policy, new GroupPolicyRepresentation());
+        GroupPolicyRepresentation groupPolicy = toRepresentation(policy, authorization);
         Set<GroupPolicyRepresentation.GroupDefinition> groups = groupPolicy.getGroups();
 
         for (GroupPolicyRepresentation.GroupDefinition definition: groups) {
-            GroupModel group = authorizationProvider.getRealm().getGroupById(definition.getId());
+            GroupModel group = authorization.getRealm().getGroupById(definition.getId());
             definition.setId(null);
             definition.setPath(ModelToRepresentation.buildGroupPath(group));
         }
 
         try {
-            config.put("groupsClaim", groupPolicy.getGroupsClaim());
+            String groupsClaim = groupPolicy.getGroupsClaim();
+
+            if (groupsClaim != null) {
+                config.put("groupsClaim", groupsClaim);
+            }
+
             config.put("groups", JsonSerialization.writeValueAsString(groups));
         } catch (IOException cause) {
             throw new RuntimeException("Failed to export group policy [" + policy.getName() + "]", cause);
@@ -147,17 +152,15 @@ public class GroupPolicyProviderFactory implements PolicyProviderFactory<GroupPo
     }
 
     private void updatePolicy(Policy policy, String groupsClaim, Set<GroupPolicyRepresentation.GroupDefinition> groups, AuthorizationProvider authorization) {
-        if (groupsClaim == null) {
-            throw new RuntimeException("Group claims property not provided");
-        }
-
         if (groups == null || groups.isEmpty()) {
             throw new RuntimeException("You must provide at least one group");
         }
 
         Map<String, String> config = new HashMap<>(policy.getConfig());
 
-        config.put("groupsClaim", groupsClaim);
+        if (groupsClaim != null) {
+            config.put("groupsClaim", groupsClaim);
+        }
 
         List<GroupModel> topLevelGroups = authorization.getRealm().getTopLevelGroups();
 

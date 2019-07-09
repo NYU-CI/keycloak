@@ -19,10 +19,13 @@ package org.keycloak.cluster.infinispan;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.infinispan.Cache;
 import org.infinispan.client.hotrod.RemoteCache;
+import org.infinispan.client.hotrod.VersionedValue;
 import org.infinispan.client.hotrod.annotation.ClientCacheEntryCreated;
 import org.infinispan.client.hotrod.annotation.ClientCacheEntryModified;
 import org.infinispan.client.hotrod.annotation.ClientListener;
@@ -40,7 +43,7 @@ import org.keycloak.models.sessions.infinispan.util.InfinispanUtil;
  * Test that hotrod ClientListeners are correctly executed as expected
  *
  * STEPS TO REPRODUCE:
- * - Unzip infinispan-server-8.2.6.Final to some locations ISPN1 and ISPN2
+ * - Unzip infinispan-server-9.2.4.Final to some locations ISPN1 and ISPN2
  *
  * - Edit both ISPN1/standalone/configuration/clustered.xml and ISPN2/standalone/configuration/clustered.xml . Configure cache in container "clustered"
  *
@@ -54,7 +57,7 @@ import org.keycloak.models.sessions.infinispan.util.InfinispanUtil;
  ./standalone.sh -c clustered.xml -Djava.net.preferIPv4Stack=true -Djboss.socket.binding.port-offset=1010 -Djboss.default.multicast.address=234.56.78.99 -Djboss.node.name=cache-server
 
     - Run server2
- ./standalone.sh -c clustered.xml -Djava.net.preferIPv4Stack=true -Djboss.socket.binding.port-offset=2010 -Djboss.default.multicast.address=234.56.78.99 -Djboss.node.name=cache-server-dc-2
+ ./standalone.sh -c clustered.xml -Djava.net.preferIPv4Stack=true -Djboss.socket.binding.port-offset=2010 -Djboss.default.multicast.address=234.56.78.100 -Djboss.node.name=cache-server-dc-2
 
     - Run this test as main class from IDE
  *
@@ -112,9 +115,13 @@ public class ConcurrencyJDGRemoteCacheClientListenersTest {
                 Assert.assertEquals(info.val.get(), info.dc2Created.get());
                 Assert.assertEquals(info.val.get() * 2, info.dc1Updated.get());
                 Assert.assertEquals(info.val.get() * 2, info.dc2Updated.get());
-                worker1.cache.remove(entry.getKey());
             }
         } finally {
+            // Remove items
+            for (Map.Entry<String, EntryInfo> entry : state.entrySet()) {
+                worker1.cache.remove(entry.getKey());
+            }
+
             // Finish JVM
             worker1.cache.getCacheManager().stop();
             worker2.cache.getCacheManager().stop();
@@ -140,10 +147,12 @@ public class ConcurrencyJDGRemoteCacheClientListenersTest {
 
         private final RemoteCache<String, Integer> remoteCache;
         private final int threadId;
+        private Executor executor;
 
         public HotRodListener(Cache<String, Integer> cache, int threadId) {
             this.remoteCache = InfinispanUtil.getRemoteCache(cache);
             this.threadId = threadId;
+            this.executor = Executors.newCachedThreadPool();
         }
 
         //private AtomicInteger listenerCount = new AtomicInteger(0);
@@ -151,7 +160,12 @@ public class ConcurrencyJDGRemoteCacheClientListenersTest {
         @ClientCacheEntryCreated
         public void created(ClientCacheEntryCreatedEvent event) {
             String cacheKey = (String) event.getKey();
-            event(cacheKey, true);
+
+            executor.execute(() -> {
+
+                event(cacheKey, event.getVersion(), true);
+
+            });
 
         }
 
@@ -159,17 +173,29 @@ public class ConcurrencyJDGRemoteCacheClientListenersTest {
         @ClientCacheEntryModified
         public void updated(ClientCacheEntryModifiedEvent event) {
             String cacheKey = (String) event.getKey();
-            event(cacheKey, false);
+            executor.execute(() -> {
+
+                event(cacheKey, event.getVersion(), false);
+
+            });
         }
 
 
-        private void event(String cacheKey, boolean created) {
+        private void event(String cacheKey, long version, boolean created) {
             EntryInfo entryInfo = state.get(cacheKey);
             entryInfo.successfulListenerWrites.incrementAndGet();
 
             totalListenerCalls.incrementAndGet();
 
-            Integer val = remoteCache.get(cacheKey);
+            VersionedValue<Integer> versionedVal = remoteCache.getWithMetadata(cacheKey);
+
+            if (versionedVal.getVersion() < version) {
+                System.err.println("INCOMPATIBLE VERSION. event version: " + version + ", entity version: " + versionedVal.getVersion());
+                totalErrors.incrementAndGet();
+                return;
+            }
+
+            Integer val = versionedVal.getValue();
             if (val != null) {
                 AtomicInteger dcVal;
                 if (created) {
@@ -187,6 +213,17 @@ public class ConcurrencyJDGRemoteCacheClientListenersTest {
     }
 
 
+    private static void createItems(Cache<String, Integer> cache, int myThreadId) {
+        for (Map.Entry<String, EntryInfo> entry : state.entrySet()) {
+            String cacheKey = entry.getKey();
+            Integer value = entry.getValue().val.get();
+
+            cache.put(cacheKey, value);
+        }
+
+        System.out.println("Worker creating finished: " + myThreadId);
+    }
+
     private static class Worker extends Thread {
 
         private final Cache<String, Integer> cache;
@@ -200,14 +237,7 @@ public class ConcurrencyJDGRemoteCacheClientListenersTest {
 
         @Override
         public void run() {
-            for (Map.Entry<String, EntryInfo> entry : state.entrySet()) {
-                String cacheKey = entry.getKey();
-                Integer value = entry.getValue().val.get();
-
-                this.cache.put(cacheKey, value);
-            }
-
-            System.out.println("Worker creating finished: " + myThreadId);
+            createItems(cache, myThreadId);
 
             for (Map.Entry<String, EntryInfo> entry : state.entrySet()) {
                 String cacheKey = entry.getKey();

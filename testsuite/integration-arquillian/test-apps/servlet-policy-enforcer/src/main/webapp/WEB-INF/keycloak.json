@@ -8,10 +8,15 @@
     },
     "policy-enforcer": {
         "on-deny-redirect-to": "/servlet-policy-enforcer/denied.jsp",
+        "lazy-load-paths": false,
         "paths": [
             {
                 "name": "Welcome Resource",
                 "path": "/index.jsp"
+            },
+            {
+                "name": "Welcome Resource",
+                "path": "/"
             },
             {
                 "name": "Pattern 1",
@@ -31,7 +36,7 @@
             },
             {
                 "name": "Pattern 5",
-                "path": "/resource/{pattern}/resource-d"
+                "path": "/a/{pattern}/resource-d"
             },
             {
                 "name": "Pattern 6",
@@ -60,6 +65,38 @@
             {
                 "name": "Pattern 12",
                 "path": "/keycloak_json_uri"
+            },
+            {
+              "name": "Pattern 14",
+              "path": "/keycloak-6623/sub-resource/*"
+            },
+            {
+              "name": "Pattern 13",
+              "path": "/keycloak-6623/*"
+            },
+            {
+                "name": "Pattern 15",
+                "path": "/keycloak-7148/{id}/*"
+            },
+            {
+                "name": "Pattern 16",
+                "path": "/keycloak-7269/sub-resource1"
+            },
+            {
+                "name": "Pattern 16",
+                "path": "/keycloak-7269/sub-resource2/*"
+            },
+            {
+                "name": "Pattern 16",
+                "path": "/keycloak-7269/sub-resource1/{test-pattern}/specialSuffix"
+            },
+            {
+                "name": "Pattern 17",
+                "path": "/keycloak-8823/resource/{version}/subresource/{id}/{other}"
+            },
+            {
+                "name": "Pattern 17 Entities",
+                "path": "/keycloak-8823/resource/{version}/subresource/{id}/entities"
             }
         ]
     }

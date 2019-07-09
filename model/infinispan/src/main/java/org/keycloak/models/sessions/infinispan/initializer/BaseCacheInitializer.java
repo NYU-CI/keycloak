@@ -73,40 +73,8 @@ public abstract class BaseCacheInitializer extends CacheInitializer {
     }
 
 
-    protected InitializerState getOrCreateInitializerState() {
-        InitializerState state = getStateFromCache();
-        if (state == null) {
-            final int[] count = new int[1];
-
-            // Rather use separate transactions for update and counting
-
-            KeycloakModelUtils.runJobInTransaction(sessionFactory, new KeycloakSessionTask() {
-                @Override
-                public void run(KeycloakSession session) {
-                    sessionLoader.init(session);
-                }
-
-            });
-
-            KeycloakModelUtils.runJobInTransaction(sessionFactory, new KeycloakSessionTask() {
-                @Override
-                public void run(KeycloakSession session) {
-                    count[0] = sessionLoader.getSessionsCount(session);
-                }
-
-            });
-
-            state = new InitializerState();
-            state.init(count[0], sessionsPerSegment);
-            saveStateToCache(state);
-        }
-        return state;
-
-    }
-
-
-    private InitializerState getStateFromCache() {
-        // We ignore cacheStore for now, so that in Cross-DC scenario (with RemoteStore enabled) is the remoteStore ignored. This means that every DC needs to load offline sessions separately.
+    protected InitializerState getStateFromCache() {
+        // We ignore cacheStore for now, so that in Cross-DC scenario (with RemoteStore enabled) is the remoteStore ignored.
         return (InitializerState) workCache.getAdvancedCache()
                 .withFlags(Flag.SKIP_CACHE_STORE, Flag.SKIP_CACHE_LOAD)
                 .get(stateKey);
@@ -122,7 +90,7 @@ public abstract class BaseCacheInitializer extends CacheInitializer {
             public void run() {
 
                 // Save this synchronously to ensure all nodes read correct state
-                // We ignore cacheStore for now, so that in Cross-DC scenario (with RemoteStore enabled) is the remoteStore ignored. This means that every DC needs to load offline sessions separately.
+                // We ignore cacheStore for now, so that in Cross-DC scenario (with RemoteStore enabled) is the remoteStore ignored.
                 BaseCacheInitializer.this.workCache.getAdvancedCache().
                         withFlags(Flag.IGNORE_RETURN_VALUES, Flag.FORCE_SYNCHRONOUS, Flag.SKIP_CACHE_STORE, Flag.SKIP_CACHE_LOAD)
                         .put(stateKey, state);

@@ -17,6 +17,7 @@
 
 package org.keycloak.adapters.saml.elytron;
 
+import java.io.BufferedInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -43,6 +44,7 @@ import org.keycloak.adapters.spi.AuthenticationError;
 import org.keycloak.adapters.spi.HttpFacade;
 import org.keycloak.adapters.spi.LogoutError;
 import org.keycloak.adapters.spi.SessionIdMapper;
+import org.keycloak.adapters.spi.SessionIdMapperUpdater;
 import org.wildfly.security.auth.callback.AnonymousAuthorizationCallback;
 import org.wildfly.security.auth.callback.AuthenticationCompleteCallback;
 import org.wildfly.security.auth.callback.SecurityIdentityCallback;
@@ -67,16 +69,16 @@ class ElytronHttpFacade implements HttpFacade {
     private boolean restored;
     private SamlSession samlSession;
 
-    public ElytronHttpFacade(HttpServerRequest request, SessionIdMapper idMapper, SamlDeploymentContext deploymentContext, CallbackHandler handler) {
+    public ElytronHttpFacade(HttpServerRequest request, SessionIdMapper idMapper, SessionIdMapperUpdater idMapperUpdater, SamlDeploymentContext deploymentContext, CallbackHandler handler) {
         this.request = request;
         this.deploymentContext = deploymentContext;
         this.callbackHandler = handler;
         this.responseConsumer = response -> {};
-        this.sessionStore = createTokenStore(idMapper);
+        this.sessionStore = createTokenStore(idMapper, idMapperUpdater);
     }
 
-    private SamlSessionStore createTokenStore(SessionIdMapper idMapper) {
-        return new ElytronSamlSessionStore(this, idMapper, getDeployment());
+    private SamlSessionStore createTokenStore(SessionIdMapper idMapper, SessionIdMapperUpdater idMapperUpdater) {
+        return new ElytronSamlSessionStore(this, idMapper, idMapperUpdater, getDeployment());
     }
 
     void authenticationComplete(SamlSession samlSession) {
@@ -103,9 +105,10 @@ class ElytronHttpFacade implements HttpFacade {
 
             if (anonymousAuthorizationCallback.isAuthorized()) {
                 callbackHandler.handle(new Callback[]{AuthenticationCompleteCallback.SUCCEEDED, new SecurityIdentityCallback()});
+                request.authenticationComplete(response -> response.forward(getRequest().getRelativePath()));
+            } else {
+                request.noAuthenticationInProgress(response -> response.forward(getRequest().getRelativePath()));
             }
-
-            request.authenticationComplete(response -> response.forward(getRequest().getRelativePath()));
         } catch (Exception e) {
             throw new RuntimeException("Unexpected error processing callbacks during logout.", e);
         }
@@ -145,6 +148,8 @@ class ElytronHttpFacade implements HttpFacade {
     @Override
     public Request getRequest() {
         return new Request() {
+            private InputStream inputStream;
+
             @Override
             public String getMethod() {
                 return request.getRequestMethod();
@@ -206,6 +211,19 @@ class ElytronHttpFacade implements HttpFacade {
 
             @Override
             public InputStream getInputStream() {
+                return getInputStream(false);
+            }
+
+            @Override
+            public InputStream getInputStream(boolean buffered) {
+                if (inputStream != null) {
+                    return inputStream;
+                }
+
+                if (buffered) {
+                    return inputStream = new BufferedInputStream(request.getInputStream());
+                }
+
                 return request.getInputStream();
             }
 

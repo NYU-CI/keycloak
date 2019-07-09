@@ -19,29 +19,39 @@ package org.keycloak.protocol.oidc;
 import org.jboss.logging.Logger;
 import org.keycloak.OAuth2Constants;
 import org.keycloak.OAuthErrorException;
+import org.keycloak.TokenIdGenerator;
 import org.keycloak.common.util.Time;
+import org.keycloak.connections.httpclient.HttpClientProvider;
+import org.keycloak.constants.AdapterConstants;
 import org.keycloak.events.Details;
 import org.keycloak.events.EventBuilder;
 import org.keycloak.events.EventType;
 import org.keycloak.models.AuthenticatedClientSessionModel;
 import org.keycloak.models.ClientModel;
+import org.keycloak.models.ClientSessionContext;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.RealmModel;
 import org.keycloak.models.UserSessionModel;
 import org.keycloak.protocol.LoginProtocol;
-import org.keycloak.protocol.RestartLoginCookie;
 import org.keycloak.protocol.oidc.utils.OIDCRedirectUriBuilder;
 import org.keycloak.protocol.oidc.utils.OIDCResponseMode;
 import org.keycloak.protocol.oidc.utils.OIDCResponseType;
 import org.keycloak.representations.AccessTokenResponse;
+import org.keycloak.representations.adapters.action.PushNotBeforeAction;
+import org.keycloak.services.ErrorResponseException;
 import org.keycloak.services.ServicesLogger;
 import org.keycloak.services.managers.AuthenticationManager;
 import org.keycloak.services.managers.AuthenticationSessionManager;
-import org.keycloak.services.managers.ClientSessionCode;
+import org.keycloak.protocol.oidc.utils.OAuth2Code;
+import org.keycloak.protocol.oidc.utils.OAuth2CodeParser;
 import org.keycloak.services.managers.ResourceAdminManager;
-import org.keycloak.sessions.CommonClientSessionModel;
 import org.keycloak.sessions.AuthenticationSessionModel;
+import org.keycloak.sessions.CommonClientSessionModel;
 import org.keycloak.util.TokenUtil;
+
+import java.io.IOException;
+import java.net.URI;
+import java.util.UUID;
 
 import javax.ws.rs.core.HttpHeaders;
 import javax.ws.rs.core.Response;
@@ -71,6 +81,7 @@ public class OIDCLoginProtocol implements LoginProtocol {
     public static final String REQUEST_URI_PARAM = "request_uri";
     public static final String UI_LOCALES_PARAM = OAuth2Constants.UI_LOCALES_PARAM;
     public static final String CLAIMS_PARAM = "claims";
+    public static final String ACR_PARAM = "acr_values";
 
     public static final String LOGOUT_REDIRECT_URI = "OIDC_LOGOUT_REDIRECT_URI";
     public static final String ISSUER = "iss";
@@ -170,30 +181,47 @@ public class OIDCLoginProtocol implements LoginProtocol {
 
 
     @Override
-    public Response authenticated(UserSessionModel userSession, AuthenticatedClientSessionModel clientSession) {
-        ClientSessionCode<AuthenticatedClientSessionModel> accessCode = new ClientSessionCode<>(session, realm, clientSession);
+    public Response authenticated(AuthenticationSessionModel authSession, UserSessionModel userSession, ClientSessionContext clientSessionCtx) {
+        AuthenticatedClientSessionModel clientSession= clientSessionCtx.getClientSession();
 
-        String responseTypeParam = clientSession.getNote(OIDCLoginProtocol.RESPONSE_TYPE_PARAM);
-        String responseModeParam = clientSession.getNote(OIDCLoginProtocol.RESPONSE_MODE_PARAM);
+        String responseTypeParam = authSession.getClientNote(OIDCLoginProtocol.RESPONSE_TYPE_PARAM);
+        String responseModeParam = authSession.getClientNote(OIDCLoginProtocol.RESPONSE_MODE_PARAM);
         setupResponseTypeAndMode(responseTypeParam, responseModeParam);
 
-        String redirect = clientSession.getRedirectUri();
+        String redirect = authSession.getRedirectUri();
         OIDCRedirectUriBuilder redirectUri = OIDCRedirectUriBuilder.fromUri(redirect, responseMode);
-        String state = clientSession.getNote(OIDCLoginProtocol.STATE_PARAM);
+        String state = authSession.getClientNote(OIDCLoginProtocol.STATE_PARAM);
         logger.debugv("redirectAccessCode: state: {0}", state);
         if (state != null)
             redirectUri.addParam(OAuth2Constants.STATE, state);
 
+        OIDCAdvancedConfigWrapper clientConfig = OIDCAdvancedConfigWrapper.fromClientModel(clientSession.getClient());
+        if (!clientConfig.isExcludeSessionStateFromAuthResponse()) {
+            redirectUri.addParam(OAuth2Constants.SESSION_STATE, userSession.getId());
+        }
+
+        String nonce = authSession.getClientNote(OIDCLoginProtocol.NONCE_PARAM);
+        clientSessionCtx.setAttribute(OIDCLoginProtocol.NONCE_PARAM, nonce);
+
         // Standard or hybrid flow
+        String code = null;
         if (responseType.hasResponseType(OIDCResponseType.CODE)) {
-            accessCode.setAction(CommonClientSessionModel.Action.CODE_TO_TOKEN.name());
-            redirectUri.addParam(OAuth2Constants.CODE, accessCode.getCode());
+            OAuth2Code codeData = new OAuth2Code(UUID.randomUUID(),
+                    Time.currentTime() + userSession.getRealm().getAccessCodeLifespan(),
+                    nonce,
+                    authSession.getClientNote(OAuth2Constants.SCOPE),
+                    authSession.getClientNote(OIDCLoginProtocol.REDIRECT_URI_PARAM),
+                    authSession.getClientNote(OIDCLoginProtocol.CODE_CHALLENGE_PARAM),
+                    authSession.getClientNote(OIDCLoginProtocol.CODE_CHALLENGE_METHOD_PARAM));
+
+            code = OAuth2CodeParser.persistCode(session, clientSession, codeData);
+            redirectUri.addParam(OAuth2Constants.CODE, code);
         }
 
         // Implicit or hybrid flow
         if (responseType.isImplicitOrHybridFlow()) {
-            TokenManager tokenManager = new TokenManager();
-            TokenManager.AccessTokenResponseBuilder responseBuilder = tokenManager.responseBuilder(realm, clientSession.getClient(), event, session, userSession, clientSession)
+            org.keycloak.protocol.oidc.TokenManager tokenManager = new org.keycloak.protocol.oidc.TokenManager();
+            org.keycloak.protocol.oidc.TokenManager.AccessTokenResponseBuilder responseBuilder = tokenManager.responseBuilder(realm, clientSession.getClient(), event, session, userSession, clientSessionCtx)
                     .generateAccessToken();
 
             if (responseType.hasResponseType(OIDCResponseType.ID_TOKEN)) {
@@ -205,9 +233,13 @@ public class OIDCLoginProtocol implements LoginProtocol {
                 }
 
                 if (responseType.hasResponseType(OIDCResponseType.CODE)) {
-                    responseBuilder.generateCodeHash(accessCode.getCode());
+                    responseBuilder.generateCodeHash(code);
                 }
-
+                
+                // Financial API - Part 2: Read and Write API Security Profile
+                // http://openid.net/specs/openid-financial-api-part-2.html#authorization-server
+                if (state != null && !state.isEmpty())
+                    responseBuilder.generateStateHash(state);
             }
 
             AccessTokenResponse res = responseBuilder.build();
@@ -218,12 +250,11 @@ public class OIDCLoginProtocol implements LoginProtocol {
 
             if (responseType.hasResponseType(OIDCResponseType.TOKEN)) {
                 redirectUri.addParam(OAuth2Constants.ACCESS_TOKEN, res.getToken());
-                redirectUri.addParam("token_type", res.getTokenType());
-                redirectUri.addParam("session_state", res.getSessionState());
-                redirectUri.addParam("expires_in", String.valueOf(res.getExpiresIn()));
+                if (responseType.isImplicitFlow()) {
+                    redirectUri.addParam("token_type", res.getTokenType());
+                    redirectUri.addParam("expires_in", String.valueOf(res.getExpiresIn()));
+                }
             }
-
-            redirectUri.addParam("not-before-policy", String.valueOf(res.getNotBeforePolicy()));
         }
 
         return redirectUri.build();
@@ -320,6 +351,23 @@ public class OIDCLoginProtocol implements LoginProtocol {
         }
 
         return false;
+    }
+
+    @Override
+    public boolean sendPushRevocationPolicyRequest(RealmModel realm, ClientModel resource, int notBefore, String managementUrl) {
+        PushNotBeforeAction adminAction = new PushNotBeforeAction(TokenIdGenerator.generateId(), Time.currentTime() + 30, resource.getClientId(), notBefore);
+        String token = session.tokens().encode(adminAction);
+        logger.debugv("pushRevocation resource: {0} url: {1}", resource.getClientId(), managementUrl);
+        URI target = UriBuilder.fromUri(managementUrl).path(AdapterConstants.K_PUSH_NOT_BEFORE).build();
+        try {
+            int status = session.getProvider(HttpClientProvider.class).postText(target.toString(), token);
+            boolean success = status == 204 || status == 200;
+            logger.debugf("pushRevocation success for %s: %s", managementUrl, success);
+            return success;
+        } catch (IOException e) {
+            ServicesLogger.LOGGER.failedToSendRevocation(e);
+            return false;
+        }
     }
 
     @Override

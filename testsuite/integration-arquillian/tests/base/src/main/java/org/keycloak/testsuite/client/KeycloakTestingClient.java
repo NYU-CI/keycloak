@@ -17,43 +17,50 @@
 
 package org.keycloak.testsuite.client;
 
+import javax.net.ssl.HostnameVerifier;
+import javax.net.ssl.SSLSession;
+
 import org.jboss.resteasy.client.jaxrs.ResteasyClient;
 import org.jboss.resteasy.client.jaxrs.ResteasyClientBuilder;
 import org.jboss.resteasy.client.jaxrs.ResteasyWebTarget;
 import org.keycloak.testsuite.client.resources.TestApplicationResource;
 import org.keycloak.testsuite.client.resources.TestExampleCompanyResource;
+import org.keycloak.testsuite.client.resources.TestSamlApplicationResource;
 import org.keycloak.testsuite.client.resources.TestingResource;
 import org.keycloak.testsuite.runonserver.*;
+import org.keycloak.testsuite.util.AdminClientUtil;
 import org.keycloak.util.JsonSerialization;
-
-import javax.net.ssl.HostnameVerifier;
-import javax.net.ssl.SSLSession;
 
 /**
  * @author <a href="mailto:mstrukel@redhat.com">Marko Strukelj</a>
  */
-public class KeycloakTestingClient {
+public class KeycloakTestingClient implements AutoCloseable {
 
     private final ResteasyWebTarget target;
     private final ResteasyClient client;
-    private static final boolean authServerSslRequired = Boolean.parseBoolean(System.getProperty("auth.server.ssl.required"));
 
     KeycloakTestingClient(String serverUrl, ResteasyClient resteasyClient) {
-        client = resteasyClient != null ? resteasyClient : newResteasyClientBuilder().connectionPoolSize(10).build();
-        target = client.target(serverUrl);
-    }
-
-    private static ResteasyClientBuilder newResteasyClientBuilder() {
-        if (authServerSslRequired) {
-            // Disable PKIX path validation errors when running tests using SSL
-            HostnameVerifier hostnameVerifier = (hostName, session) -> true;
-            return new ResteasyClientBuilder().disableTrustManager().hostnameVerifier(hostnameVerifier);
+        if (resteasyClient != null) {
+            client = resteasyClient;
+        } else {
+            ResteasyClientBuilder resteasyClientBuilder = new ResteasyClientBuilder();
+            resteasyClientBuilder.connectionPoolSize(10);
+            if (serverUrl.startsWith("https")) {
+                // Disable PKIX path validation errors when running tests using SSL
+                resteasyClientBuilder.disableTrustManager().hostnameVerification(ResteasyClientBuilder.HostnameVerificationPolicy.ANY);
+            }
+            resteasyClientBuilder.httpEngine(AdminClientUtil.getCustomClientHttpEngine(resteasyClientBuilder, 10));
+            client = resteasyClientBuilder.build();
         }
-        return new ResteasyClientBuilder();
+        target = client.target(serverUrl);
     }
 
     public static KeycloakTestingClient getInstance(String serverUrl) {
         return new KeycloakTestingClient(serverUrl, null);
+    }
+
+    public static KeycloakTestingClient getInstance(String serverUrl, ResteasyClient resteasyClient) {
+        return new KeycloakTestingClient(serverUrl, resteasyClient);
     }
 
     public TestingResource testing() {
@@ -65,6 +72,8 @@ public class KeycloakTestingClient {
     }
 
     public TestApplicationResource testApp() { return target.proxy(TestApplicationResource.class); }
+
+    public TestSamlApplicationResource testSamlApp() { return target.proxy(TestSamlApplicationResource.class); }
 
     public TestExampleCompanyResource testExampleCompany() { return target.proxy(TestExampleCompanyResource.class); }
 
@@ -78,7 +87,7 @@ public class KeycloakTestingClient {
 
     public class Server {
 
-        private String realm;
+        private final String realm;
 
         public Server(String realm) {
             this.realm = realm;
@@ -90,14 +99,14 @@ public class KeycloakTestingClient {
 
         public <T> T fetch(FetchOnServer function, Class<T> clazz) throws RunOnServerException {
             try {
-                String s = fetch(function);
-                return JsonSerialization.readValue(s, clazz);
+                String s = fetchString(function);
+                return s==null ? null : JsonSerialization.readValue(s, clazz);
             } catch (Exception e) {
                 throw new RuntimeException(e);
             }
         }
 
-        public String fetch(FetchOnServer function) throws RunOnServerException {
+        public String fetchString(FetchOnServer function) throws RunOnServerException {
             String encoded = SerializationUtil.encode(function);
 
             String result = testing(realm != null ? realm : "master").runOnServer(encoded);
@@ -127,8 +136,24 @@ public class KeycloakTestingClient {
             }
         }
 
+
+        public void runModelTest(String testClassName, String testMethodName) throws RunOnServerException {
+            String result = testing(realm != null ? realm : "master").runModelTestOnServer(testClassName, testMethodName);
+
+            if (result != null && !result.isEmpty() && result.trim().startsWith("EXCEPTION:")) {
+                Throwable t = SerializationUtil.decodeException(result);
+
+                if (t instanceof AssertionError) {
+                    throw (AssertionError) t;
+                } else {
+                    throw new RunOnServerException(t);
+                }
+            }
+        }
+
     }
 
+    @Override
     public void close() {
         client.close();
     }

@@ -52,7 +52,7 @@ import java.util.Set;
  */
 public class RolePolicyProviderFactory implements PolicyProviderFactory<RolePolicyRepresentation> {
 
-    private RolePolicyProvider provider = new RolePolicyProvider(policy -> toRepresentation(policy, new RolePolicyRepresentation()));
+    private RolePolicyProvider provider = new RolePolicyProvider(this::toRepresentation);
 
     @Override
     public String getName() {
@@ -75,12 +75,15 @@ public class RolePolicyProviderFactory implements PolicyProviderFactory<RolePoli
     }
 
     @Override
-    public RolePolicyRepresentation toRepresentation(Policy policy, RolePolicyRepresentation representation) {
+    public RolePolicyRepresentation toRepresentation(Policy policy, AuthorizationProvider authorization) {
+        RolePolicyRepresentation representation = new RolePolicyRepresentation();
+
         try {
             representation.setRoles(new HashSet<>(Arrays.asList(JsonSerialization.readValue(policy.getConfig().get("roles"), RolePolicyRepresentation.RoleDefinition[].class))));
         } catch (IOException cause) {
             throw new RuntimeException("Failed to deserialize roles", cause);
         }
+
         return representation;
     }
 
@@ -111,7 +114,7 @@ public class RolePolicyProviderFactory implements PolicyProviderFactory<RolePoli
     @Override
     public void onExport(Policy policy, PolicyRepresentation representation, AuthorizationProvider authorizationProvider) {
         Map<String, String> config = new HashMap<>();
-        Set<RolePolicyRepresentation.RoleDefinition> roles = toRepresentation(policy, new RolePolicyRepresentation()).getRoles();
+        Set<RolePolicyRepresentation.RoleDefinition> roles = toRepresentation(policy, authorizationProvider).getRoles();
 
         for (RolePolicyRepresentation.RoleDefinition roleDefinition : roles) {
             RoleModel role = authorizationProvider.getRealm().getRoleById(roleDefinition.getId());
@@ -222,7 +225,7 @@ public class RolePolicyProviderFactory implements PolicyProviderFactory<RolePoli
     }
 
     private void updateResourceServer(ClientModel clientModel, RoleModel removedRole, ResourceServerStore resourceServerStore, PolicyStore policyStore) {
-        ResourceServer resourceServer = resourceServerStore.findByClient(clientModel.getId());
+        ResourceServer resourceServer = resourceServerStore.findById(clientModel.getId());
 
         if (resourceServer != null) {
             policyStore.findByType(getId(), resourceServer.getId()).forEach(policy -> {

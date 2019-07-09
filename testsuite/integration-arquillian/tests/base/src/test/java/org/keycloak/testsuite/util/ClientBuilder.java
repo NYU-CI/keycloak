@@ -176,6 +176,16 @@ public class ClientBuilder {
         return this;
     }
 
+    public ClientBuilder protocol(String protocol) {
+        rep.setProtocol(protocol);
+        return this;
+    }
+
+    public ClientBuilder enabled(Boolean enabled) {
+        rep.setEnabled(enabled);
+        return this;
+    }
+
     public ClientBuilder authorizationServicesEnabled(boolean enable) {
         rep.setAuthorizationServicesEnabled(enable);
         return this;
@@ -187,5 +197,13 @@ public class ClientBuilder {
         }
         rep.getProtocolMappers().addAll(Arrays.asList(mappers));
         return this;
+    }
+
+    public ClientBuilder pairwise(String sectorIdentifierUri, String salt) {
+        return protocolMapper(ProtocolMapperUtil.createPairwiseMapper(sectorIdentifierUri, salt));
+    }
+
+    public ClientBuilder pairwise(String sectorIdentifierUri) {
+        return protocolMapper(ProtocolMapperUtil.createPairwiseMapper(sectorIdentifierUri, null));
     }
 }

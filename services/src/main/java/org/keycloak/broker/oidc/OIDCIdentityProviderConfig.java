@@ -23,9 +23,10 @@ import org.keycloak.models.IdentityProviderModel;
  */
 public class OIDCIdentityProviderConfig extends OAuth2IdentityProviderConfig {
 
-    private static final String JWKS_URL = "jwksUrl";
+    public static final String JWKS_URL = "jwksUrl";
 
-    private static final String USE_JWKS_URL = "useJwksUrl";
+    public static final String USE_JWKS_URL = "useJwksUrl";
+    public static final String VALIDATE_SIGNATURE = "validateSignature";
 
 
     public OIDCIdentityProviderConfig(IdentityProviderModel identityProviderModel) {
@@ -73,7 +74,7 @@ public class OIDCIdentityProviderConfig extends OAuth2IdentityProviderConfig {
     }
 
     public void setValidateSignature(boolean validateSignature) {
-        getConfig().put("validateSignature", String.valueOf(validateSignature));
+        getConfig().put(VALIDATE_SIGNATURE, String.valueOf(validateSignature));
     }
 
     public boolean isUseJwksUrl() {
@@ -109,7 +110,16 @@ public class OIDCIdentityProviderConfig extends OAuth2IdentityProviderConfig {
         getConfig().put("disableUserInfo", String.valueOf(disable));
     }
 
-
-
-
+    public int getAllowedClockSkew() {
+        String allowedClockSkew = getConfig().get("allowedClockSkew");
+        if (allowedClockSkew == null || allowedClockSkew.isEmpty()) {
+            return 0;
+        }
+        try {
+            return Integer.parseInt(getConfig().get("allowedClockSkew"));
+        } catch (NumberFormatException e) {
+            // ignore it and use default
+            return 0;
+        }
+    }
 }

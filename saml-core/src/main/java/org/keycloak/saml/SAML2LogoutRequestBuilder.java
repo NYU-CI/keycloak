@@ -36,8 +36,7 @@ import org.keycloak.dom.saml.v2.protocol.ExtensionsType;
  * @version $Revision: 1 $
  */
 public class SAML2LogoutRequestBuilder implements SamlProtocolExtensionsAwareBuilder<SAML2LogoutRequestBuilder> {
-    protected String userPrincipal;
-    protected String userPrincipalFormat;
+    protected NameIDType nameId;
     protected String sessionIndex;
     protected long assertionExpiration;
     protected String destination;
@@ -72,10 +71,26 @@ public class SAML2LogoutRequestBuilder implements SamlProtocolExtensionsAwareBui
         return this;
     }
 
+    /**
+     *
+     * @param userPrincipal
+     * @param userPrincipalFormat
+     * @return
+     * @deprecated Prefer {@link #nameId(org.keycloak.dom.saml.v2.assertion.NameIDType)}
+     */
+    @Deprecated
+    public SAML2LogoutRequestBuilder userPrincipal(String userPrincipal, String userPrincipalFormat) {
+        NameIDType nid = new NameIDType();
+        nid.setValue(userPrincipal);
+        if (userPrincipalFormat != null) {
+            nid.setFormat(URI.create(userPrincipalFormat));
+        }
+        
+        return nameId(nid);
+    }
 
-    public SAML2LogoutRequestBuilder userPrincipal(String nameID, String nameIDformat) {
-        this.userPrincipal = nameID;
-        this.userPrincipalFormat = nameIDformat;
+    public SAML2LogoutRequestBuilder nameId(NameIDType nameId) {
+        this.nameId = nameId;
         return this;
     }
 
@@ -85,19 +100,14 @@ public class SAML2LogoutRequestBuilder implements SamlProtocolExtensionsAwareBui
     }
 
     public Document buildDocument() throws ProcessingException, ConfigurationException, ParsingException {
-        Document document = new SAML2Request().convert(createLogoutRequest());
+        Document document = SAML2Request.convert(createLogoutRequest());
         return document;
     }
 
     private LogoutRequestType createLogoutRequest() throws ConfigurationException {
-        LogoutRequestType lort = new SAML2Request().createLogoutRequest(issuer);
+        LogoutRequestType lort = SAML2Request.createLogoutRequest(issuer);
 
-        NameIDType nameID = new NameIDType();
-        nameID.setValue(userPrincipal);
-        //Deal with NameID Format
-        String nameIDFormat = userPrincipalFormat;
-        nameID.setFormat(URI.create(nameIDFormat));
-        lort.setNameID(nameID);
+        lort.setNameID(nameId);
 
         if (issuer != null) {
             NameIDType issuerID = new NameIDType();

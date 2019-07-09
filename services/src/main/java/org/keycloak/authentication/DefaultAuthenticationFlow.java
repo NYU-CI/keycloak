@@ -18,6 +18,7 @@
 package org.keycloak.authentication;
 
 import org.jboss.logging.Logger;
+import org.keycloak.OAuth2Constants;
 import org.keycloak.models.AuthenticationExecutionModel;
 import org.keycloak.models.AuthenticationFlowModel;
 import org.keycloak.models.UserModel;
@@ -58,6 +59,26 @@ public class DefaultAuthenticationFlow implements AuthenticationFlow {
                 || status == AuthenticationSessionModel.ExecutionStatus.SETUP_REQUIRED;
     }
 
+    protected Authenticator createAuthenticator(AuthenticatorFactory factory) {
+        String display = processor.getAuthenticationSession().getAuthNote(OAuth2Constants.DISPLAY);
+        if (display == null) return factory.create(processor.getSession());
+
+
+        if (factory instanceof DisplayTypeAuthenticatorFactory) {
+            Authenticator authenticator = ((DisplayTypeAuthenticatorFactory)factory).createDisplay(processor.getSession(), display);
+            if (authenticator != null) return authenticator;
+        }
+        // todo create a provider for handling lack of display support
+        if (OAuth2Constants.DISPLAY_CONSOLE.equalsIgnoreCase(display)) {
+            processor.getAuthenticationSession().removeAuthNote(OAuth2Constants.DISPLAY);
+            throw new AuthenticationFlowException(AuthenticationFlowError.DISPLAY_NOT_SUPPORTED,
+                    ConsoleDisplayMode.browserContinue(processor.getSession(), processor.getRefreshUrl(true).toString()));
+
+        } else {
+            return factory.create(processor.getSession());
+        }
+    }
+
 
     @Override
     public Response processAction(String actionExecution) {
@@ -73,7 +94,18 @@ public class DefaultAuthenticationFlow implements AuthenticationFlow {
             }
             if (model.isAuthenticatorFlow()) {
                 AuthenticationFlow authenticationFlow = processor.createFlowExecution(model.getFlowId(), model);
-                Response flowChallenge = authenticationFlow.processAction(actionExecution);
+                Response flowChallenge = null;
+                try {
+                    flowChallenge = authenticationFlow.processAction(actionExecution);
+                } catch (AuthenticationFlowException afe) {
+                    if (model.isAlternative()) {
+                        logger.debug("Thrown exception in alternative Subflow. Ignoring Subflow");
+                        processor.getAuthenticationSession().setExecutionStatus(model.getId(), AuthenticationSessionModel.ExecutionStatus.ATTEMPTED);
+                        return processFlow();
+                    } else {
+                        throw afe;
+                    }
+                }
                 if (flowChallenge == null) {
                     processor.getAuthenticationSession().setExecutionStatus(model.getId(), AuthenticationSessionModel.ExecutionStatus.SUCCESS);
                     if (model.isAlternative()) alternativeSuccessful = true;
@@ -86,7 +118,7 @@ public class DefaultAuthenticationFlow implements AuthenticationFlow {
                 if (factory == null) {
                     throw new RuntimeException("Unable to find factory for AuthenticatorFactory: " + model.getAuthenticator() + " did you forget to declare it in a META-INF/services file?");
                 }
-                Authenticator authenticator = factory.create(processor.getSession());
+                Authenticator authenticator = createAuthenticator(factory);
                 AuthenticationProcessor.Result result = processor.createAuthenticatorContext(model, authenticator, executions);
                 logger.debugv("action: {0}", model.getAuthenticator());
                 authenticator.action(result);
@@ -161,7 +193,7 @@ public class DefaultAuthenticationFlow implements AuthenticationFlow {
             if (factory == null) {
                 throw new RuntimeException("Unable to find factory for AuthenticatorFactory: " + model.getAuthenticator() + " did you forget to declare it in a META-INF/services file?");
             }
-            Authenticator authenticator = factory.create(processor.getSession());
+            Authenticator authenticator = createAuthenticator(factory);
             logger.debugv("authenticator: {0}", factory.getId());
             UserModel authUser = processor.getAuthenticationSession().getAuthenticatedUser();
 

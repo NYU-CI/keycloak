@@ -20,6 +20,8 @@ package org.keycloak.testsuite.pages;
 import org.openqa.selenium.WebElement;
 import org.openqa.selenium.support.FindBy;
 
+import static org.keycloak.testsuite.util.UIUtils.clickLink;
+
 /**
  * @author <a href="mailto:sthorger@redhat.com">Stian Thorgersen</a>
  */
@@ -53,7 +55,8 @@ public class LoginUpdateProfilePage extends AbstractPage {
             emailInput.clear();
             emailInput.sendKeys(email);
         }
-        submitButton.click();
+
+        clickLink(submitButton);
     }
 
     public String getError() {
@@ -73,7 +76,7 @@ public class LoginUpdateProfilePage extends AbstractPage {
     }
 
     public boolean isCurrent() {
-        return driver.getTitle().equals("Update Account Information");
+        return PageUtils.getPageTitle(driver).equals("Update Account Information");
     }
 
     @Override

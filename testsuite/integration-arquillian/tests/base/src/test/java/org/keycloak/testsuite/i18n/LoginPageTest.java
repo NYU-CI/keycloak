@@ -18,7 +18,7 @@ package org.keycloak.testsuite.i18n;
 
 import java.util.Arrays;
 
-import org.apache.http.impl.client.DefaultHttpClient;
+import org.apache.http.impl.client.CloseableHttpClient;
 import org.jboss.resteasy.client.jaxrs.ResteasyClient;
 import org.jboss.resteasy.client.jaxrs.ResteasyClientBuilder;
 import org.jboss.resteasy.client.jaxrs.engines.ApacheHttpClient4Engine;
@@ -81,6 +81,8 @@ public class LoginPageTest extends AbstractI18NTest {
 
     @Test
     public void languageDropdown() {
+        ProfileAssume.assumeCommunity();
+
         loginPage.open();
         Assert.assertEquals("English", loginPage.getLanguageDropdownText());
 
@@ -116,7 +118,7 @@ public class LoginPageTest extends AbstractI18NTest {
     public void acceptLanguageHeader() {
         ProfileAssume.assumeCommunity();
         
-        DefaultHttpClient httpClient = (DefaultHttpClient) new HttpClientBuilder().build();
+        CloseableHttpClient httpClient = (CloseableHttpClient) new HttpClientBuilder().build();
         ApacheHttpClient4Engine engine = new ApacheHttpClient4Engine(httpClient);
         ResteasyClient client = new ResteasyClientBuilder().httpEngine(engine).build();
 
@@ -143,6 +145,8 @@ public class LoginPageTest extends AbstractI18NTest {
     // KEYCLOAK-3887
     @Test
     public void languageChangeRequiredActions() {
+        ProfileAssume.assumeCommunity();
+
         UserResource user = ApiUtil.findUserByUsernameId(testRealm(), "test-user@localhost");
         UserRepresentation userRep = user.toRepresentation();
         userRep.setRequiredActions(Arrays.asList(UserModel.RequiredAction.UPDATE_PASSWORD.toString()));
@@ -168,6 +172,8 @@ public class LoginPageTest extends AbstractI18NTest {
     // KEYCLOAK-3887
     @Test
     public void languageChangeConsentScreen() {
+        ProfileAssume.assumeCommunity();
+
         // Set client, which requires consent
         oauth.clientId("third-party");
 

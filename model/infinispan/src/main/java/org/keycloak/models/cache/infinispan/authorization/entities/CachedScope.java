@@ -18,12 +18,8 @@
 
 package org.keycloak.models.cache.infinispan.authorization.entities;
 
-import org.keycloak.authorization.model.ResourceServer;
 import org.keycloak.authorization.model.Scope;
 import org.keycloak.models.cache.infinispan.entities.AbstractRevisioned;
-
-import java.io.Serializable;
-import java.util.Objects;
 
 /**
  * @author <a href="mailto:psilva@redhat.com">Pedro Igor</a>
@@ -32,17 +28,23 @@ public class CachedScope extends AbstractRevisioned implements InResourceServer 
 
     private String resourceServerId;
     private String name;
+    private String displayName;
     private String iconUri;
 
     public CachedScope(Long revision, Scope scope) {
         super(revision, scope.getId());
         this.name = scope.getName();
+        this.displayName = scope.getDisplayName();
         this.iconUri = scope.getIconUri();
         this.resourceServerId = scope.getResourceServer().getId();
     }
 
     public String getName() {
         return this.name;
+    }
+
+    public String getDisplayName() {
+        return displayName;
     }
 
     public String getIconUri() {
@@ -53,5 +55,4 @@ public class CachedScope extends AbstractRevisioned implements InResourceServer 
     public String getResourceServerId() {
         return this.resourceServerId;
     }
-
 }

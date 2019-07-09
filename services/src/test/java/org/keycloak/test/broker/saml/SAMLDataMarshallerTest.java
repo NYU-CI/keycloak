@@ -103,7 +103,7 @@ public class SAMLDataMarshallerTest {
 
     @Test
     public void testSerializeWithNamespaceInSignatureElement() throws Exception {
-        SAMLParser parser = new SAMLParser();
+        SAMLParser parser = SAMLParser.getInstance();
         try (InputStream st = SAMLDataMarshallerTest.class.getResourceAsStream("saml-response-ds-ns-in-signature.xml")) {
             Object parsedObject = parser.parse(st);
             assertThat(parsedObject, instanceOf(ResponseType.class));
@@ -121,7 +121,7 @@ public class SAMLDataMarshallerTest {
 
     @Test
     public void testSerializeWithNamespaceNotInSignatureElement() throws Exception {
-        SAMLParser parser = new SAMLParser();
+        SAMLParser parser = SAMLParser.getInstance();
         try (InputStream st = SAMLDataMarshallerTest.class.getResourceAsStream("saml-response-ds-ns-above-signature.xml")) {
             Object parsedObject = parser.parse(st);
             assertThat(parsedObject, instanceOf(ResponseType.class));
@@ -129,11 +129,16 @@ public class SAMLDataMarshallerTest {
             ResponseType response = (ResponseType) parsedObject;
 
             SAMLDataMarshaller serializer = new SAMLDataMarshaller();
-            String serialized = serializer.serialize(response.getAssertions().get(0).getAssertion());
+            String serializedResponse = serializer.serialize(response);
+            String serializedAssertion = serializer.serialize(response.getAssertions().get(0).getAssertion());
 
-            AssertionType deserialized = serializer.deserialize(serialized, AssertionType.class);
-            assertThat(deserialized, CoreMatchers.notNullValue());
-            assertThat(deserialized.getID(), CoreMatchers.is("id-4r-Xj702KQsM0gJyu3Fqpuwfe-LvDrEcQZpxKrhC"));
+            ResponseType deserializedResponse = serializer.deserialize(serializedResponse, ResponseType.class);
+            assertThat(deserializedResponse, CoreMatchers.notNullValue());
+            assertThat(deserializedResponse.getID(), CoreMatchers.is("id-EYgqtumZ-P-Ph7t37f-brUKMwB5MKix0sNjr-0YV"));
+
+            AssertionType deserializedAssertion = serializer.deserialize(serializedAssertion, AssertionType.class);
+            assertThat(deserializedAssertion, CoreMatchers.notNullValue());
+            assertThat(deserializedAssertion.getID(), CoreMatchers.is("id-4r-Xj702KQsM0gJyu3Fqpuwfe-LvDrEcQZpxKrhC"));
         }
     }
 }

@@ -23,6 +23,8 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 
 import org.infinispan.Cache;
@@ -48,6 +50,11 @@ import org.keycloak.cluster.ClusterEvent;
 import org.keycloak.cluster.ClusterListener;
 import org.keycloak.cluster.ClusterProvider;
 import org.keycloak.common.util.ConcurrentMultivaluedHashMap;
+import org.keycloak.common.util.Retry;
+import org.keycloak.executors.ExecutorsProvider;
+import org.keycloak.models.KeycloakSession;
+import org.infinispan.client.hotrod.exceptions.HotRodClientException;
+
 /**
  * Impl for sending infinispan messages across cluster and listening to them
  *
@@ -63,38 +70,48 @@ public class InfinispanNotificationsManager {
 
     private final Cache<String, Serializable> workCache;
 
+    private final RemoteCache workRemoteCache;
+
     private final String myAddress;
 
     private final String mySite;
 
+    private final ExecutorService listenersExecutor;
 
-    protected InfinispanNotificationsManager(Cache<String, Serializable> workCache, String myAddress, String mySite) {
+
+    protected InfinispanNotificationsManager(Cache<String, Serializable> workCache, RemoteCache workRemoteCache, String myAddress, String mySite, ExecutorService listenersExecutor) {
         this.workCache = workCache;
+        this.workRemoteCache = workRemoteCache;
         this.myAddress = myAddress;
         this.mySite = mySite;
+        this.listenersExecutor = listenersExecutor;
     }
 
 
     // Create and init manager including all listeners etc
-    public static InfinispanNotificationsManager create(Cache<String, Serializable> workCache, String myAddress, String mySite, Set<RemoteStore> remoteStores) {
-        InfinispanNotificationsManager manager = new InfinispanNotificationsManager(workCache, myAddress, mySite);
+    public static InfinispanNotificationsManager create(KeycloakSession session, Cache<String, Serializable> workCache, String myAddress, String mySite, Set<RemoteStore> remoteStores) {
+        RemoteCache workRemoteCache = null;
 
-        // We need CacheEntryListener just if we don't have remoteStore. With remoteStore will be all cluster nodes notified anyway from HotRod listener
-        if (remoteStores.isEmpty()) {
-            workCache.addListener(manager.new CacheEntryListener());
-
-            logger.debugf("Added listener for infinispan cache: %s", workCache.getName());
-        } else {
-            for (RemoteStore remoteStore : remoteStores) {
-                RemoteCache<Object, Object> remoteCache = remoteStore.getRemoteCache();
-                remoteCache.addClientListener(manager.new HotRodListener(remoteCache));
-
-                logger.debugf("Added listener for HotRod remoteStore cache: %s", remoteCache.getName());
-            }
+        if (!remoteStores.isEmpty()) {
+            RemoteStore remoteStore = remoteStores.iterator().next();
+            workRemoteCache = remoteStore.getRemoteCache();
 
             if (mySite == null) {
                 throw new IllegalStateException("Multiple datacenters available, but site name is not configured! Check your configuration");
             }
+        }
+
+        ExecutorService listenersExecutor = workRemoteCache==null ? null : session.getProvider(ExecutorsProvider.class).getExecutor("work-cache-event-listener");
+        InfinispanNotificationsManager manager = new InfinispanNotificationsManager(workCache, workRemoteCache, myAddress, mySite, listenersExecutor);
+
+        // We need CacheEntryListener for communication within current DC
+        workCache.addListener(manager.new CacheEntryListener());
+        logger.debugf("Added listener for infinispan cache: %s", workCache.getName());
+
+        // Added listener for remoteCache to notify other DCs
+        if (workRemoteCache != null) {
+            workRemoteCache.addClientListener(manager.new HotRodListener(workRemoteCache));
+            logger.debugf("Added listener for HotRod remoteStore cache: %s", workRemoteCache.getName());
         }
 
         return manager;
@@ -132,13 +149,28 @@ public class InfinispanNotificationsManager {
             logger.tracef("Sending event with key %s: %s", eventKey, event);
         }
 
-        Flag[] flags = dcNotify == ClusterProvider.DCNotify.LOCAL_DC_ONLY
-                ? new Flag[] { Flag.IGNORE_RETURN_VALUES, Flag.SKIP_CACHE_STORE }
-                : new Flag[] { Flag.IGNORE_RETURN_VALUES };
+        if (dcNotify == ClusterProvider.DCNotify.LOCAL_DC_ONLY || workRemoteCache == null) {
+            // Just put it to workCache, but skip notifying remoteCache
+            workCache.getAdvancedCache().withFlags(Flag.IGNORE_RETURN_VALUES, Flag.SKIP_CACHE_STORE)
+                    .put(eventKey, wrappedEvent, 120, TimeUnit.SECONDS);
+        } else {
+            // Add directly to remoteCache. Will notify remote listeners on all nodes in all DCs
+            Retry.executeWithBackoff((int iteration) -> {
+                try {
+                    workRemoteCache.put(eventKey, wrappedEvent, 120, TimeUnit.SECONDS);
+                } catch (HotRodClientException re) {
+                if (logger.isDebugEnabled()) {
+                    logger.debugf(re, "Failed sending notification to remote cache '%s'. Key: '%s', iteration '%s'. Will try to retry the task",
+                            workRemoteCache.getName(), eventKey, iteration);
+                }
 
-        // Put the value to the cache to notify listeners on all the nodes
-        workCache.getAdvancedCache().withFlags(flags)
-                .put(eventKey, wrappedEvent, 120, TimeUnit.SECONDS);
+                // Rethrow the exception. Retry will take care of handle the exception and eventually retry the operation.
+                throw re;
+            }
+
+        }, 10, 10);
+
+        }
     }
 
 
@@ -196,8 +228,17 @@ public class InfinispanNotificationsManager {
 
         private void hotrodEventReceived(String key) {
             // TODO: Look at CacheEventConverter stuff to possibly include value in the event and avoid additional remoteCache request
-            Object value = workCache.get(key);
-            eventReceived(key, (Serializable) value);
+            try {
+                listenersExecutor.submit(() -> {
+
+                    Object value = remoteCache.get(key);
+                    eventReceived(key, (Serializable) value);
+
+                });
+            } catch (RejectedExecutionException ree) {
+                logger.errorf("Rejected submitting of the event for key: %s. Value: %s, Server going to shutdown or pool exhausted. Pool: %s", key, workCache.get(key), listenersExecutor.toString());
+                throw ree;
+            }
         }
 
     }
@@ -219,7 +260,7 @@ public class InfinispanNotificationsManager {
         }
 
         if (event.isIgnoreSenderSite()) {
-            if (this.mySite != null && this.mySite.equals(event.getSender())) {
+            if (this.mySite == null || this.mySite.equals(event.getSenderSite())) {
                 return;
             }
         }

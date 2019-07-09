@@ -8,10 +8,15 @@ import org.openqa.selenium.ie.InternetExplorerDriver;
 import org.openqa.selenium.support.ui.ExpectedCondition;
 import org.openqa.selenium.support.ui.WebDriverWait;
 
+import java.net.URI;
+import java.util.Arrays;
+import java.util.List;
 import java.util.regex.Pattern;
 
+import static org.junit.Assert.assertEquals;
+import static org.keycloak.testsuite.util.DroneUtils.getCurrentDriver;
+import static org.keycloak.testsuite.util.WaitUtils.waitForPageToLoad;
 import static org.openqa.selenium.support.ui.ExpectedConditions.not;
-import static org.openqa.selenium.support.ui.ExpectedConditions.or;
 import static org.openqa.selenium.support.ui.ExpectedConditions.urlMatches;
 import static org.openqa.selenium.support.ui.ExpectedConditions.urlToBe;
 
@@ -20,12 +25,14 @@ import static org.openqa.selenium.support.ui.ExpectedConditions.urlToBe;
  */
 public final class URLUtils {
 
-    public static void navigateToUri(WebDriver driver, String uri, boolean waitForMatch) {
-        navigateToUri(driver, uri, waitForMatch, true);
+    private static Logger log = Logger.getLogger(URLUtils.class);
+
+    public static void navigateToUri(String uri) {
+        navigateToUri(uri, true);
     }
 
-    private static void navigateToUri(WebDriver driver, String uri, boolean waitForMatch, boolean enableIEWorkaround) {
-        Logger log = Logger.getLogger(URLUtils.class);
+    private static void navigateToUri(String uri, boolean enableIEWorkaround) {
+        WebDriver driver = getCurrentDriver();
 
         log.info("starting navigation");
 
@@ -34,27 +41,20 @@ public final class URLUtils {
         if (driver instanceof InternetExplorerDriver && driver.getCurrentUrl().equals(uri)) {
             log.info("IE workaround: target URL equals current URL - refreshing the page");
             driver.navigate().refresh();
+            waitForPageToLoad();
         }
-
-        WaitUtils.waitForPageToLoad(driver);
 
         log.info("current URL:  " + driver.getCurrentUrl());
         log.info("navigating to " + uri);
-        driver.navigate().to(uri);
-
-        if (waitForMatch) {
-            // Possible login URL; this is to eliminate unnecessary wait when navigating to a secured page and being
-            // redirected to the login page
-            String loginUrl = "^[^\\?]+/auth/realms/[^/]+/(protocol|login-actions).+$";
-
-            try {
-                (new WebDriverWait(driver, 3)).until(or(urlMatches("^" + Pattern.quote(uri) + ".*$"), urlMatches(loginUrl)));
-            } catch (TimeoutException e) {
-                log.info("new current URL doesn't start with desired URL");
-            }
+        if (driver.getCurrentUrl().equals(uri)) { // Some browsers won't do anything if navigating to the same URL; this "fixes" it
+            log.info("target URL equals current URL - refreshing the page");
+            driver.navigate().refresh();
+        }
+        else {
+            driver.navigate().to(uri);
         }
 
-        WaitUtils.waitForPageToLoad(driver);
+        waitForPageToLoad();
 
         log.info("new current URL:  " + driver.getCurrentUrl());
 
@@ -65,45 +65,66 @@ public final class URLUtils {
                 && (driver.getCurrentUrl().matches("^[^#]+/#state=[^#/&]+&code=[^#/&]+$")
                 ||  driver.getCurrentUrl().matches("^.+/auth/admin/[^/]+/console/$"))) {
             log.info("IE workaround: reloading the page after deleting the cookies...");
-            navigateToUri(driver, uri, waitForMatch, false);
+            navigateToUri(uri, false);
         }
         else {
             log.info("navigation complete");
         }
     }
 
-    public static boolean currentUrlEqual(WebDriver driver, String url) {
-        return urlCheck(driver, urlToBe(url));
+    public static boolean currentUrlEquals(String url) {
+        return urlCheck(urlToBe(url));
     }
 
-    public static boolean currentUrlDoesntEqual(WebDriver driver, String url) {
-        return urlCheck(driver, not(urlToBe(url)));
+    public static boolean currentUrlDoesntEqual(String url) {
+        return urlCheck(not(urlToBe(url)));
     }
 
-    public static boolean currentUrlStartWith(WebDriver driver, String url) {
-        return urlCheck(driver, urlMatches("^" + Pattern.quote(url) + ".*$"));
+    public static boolean currentUrlWithQueryEquals(String expectedUrl, String... expectedQuery) {
+        List<String> expectedQueryList = Arrays.asList(expectedQuery);
+
+        ExpectedCondition<Boolean> condition = (WebDriver driver) -> {
+            String[] urlParts = driver.getCurrentUrl().split("\\?", 2);
+            if (urlParts.length != 2) {
+                throw new RuntimeException("Current URL doesn't contain query string");
+            }
+            List<String> queryParts = Arrays.asList(urlParts[1].split("&"));
+
+            return urlParts[0].equals(expectedUrl) && queryParts.containsAll(expectedQueryList);
+        };
+
+        return urlCheck(condition);
     }
 
-    public static boolean currentUrlDoesntStartWith(WebDriver driver, String url) {
-        return urlCheck(driver, urlMatches("^(?!" + Pattern.quote(url) + ").+$"));
+    public static boolean currentUrlStartsWith(String url) {
+        return currentUrlMatches("^" + Pattern.quote(url) + ".*$");
     }
 
-    private static boolean urlCheck(WebDriver driver, ExpectedCondition condition) {
-        return urlCheck(driver, condition, false);
+    public static boolean currentUrlDoesntStartWith(String url) {
+        return currentUrlMatches("^(?!" + Pattern.quote(url) + ").+$");
     }
 
-    private static boolean urlCheck(WebDriver driver, ExpectedCondition condition, boolean secondTry) {
-        Logger log = Logger.getLogger(URLUtils.class);
+    public static boolean currentUrlMatches(String regex) {
+        return urlCheck(urlMatches(regex));
+    }
+
+    private static boolean urlCheck(ExpectedCondition condition) {
+        return urlCheck(condition, false);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static boolean urlCheck(ExpectedCondition condition, boolean secondTry) {
+        WebDriver driver = getCurrentDriver();
 
         try {
-            (new WebDriverWait(driver, 1, 100)).until(condition);
+            (new WebDriverWait(driver, 5, 100)).until(condition);
         }
         catch (TimeoutException e) {
             if (driver instanceof InternetExplorerDriver && !secondTry) {
                 // IE WebDriver has sometimes invalid current URL
                 log.info("IE workaround: checking URL failed at first attempt - refreshing the page and trying one more time...");
                 driver.navigate().refresh();
-                urlCheck(driver, condition, true);
+                urlCheck(condition, true);
             }
             else {
                 return false;

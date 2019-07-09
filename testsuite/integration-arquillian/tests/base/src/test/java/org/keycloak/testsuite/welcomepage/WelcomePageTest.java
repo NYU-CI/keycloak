@@ -17,19 +17,24 @@
 
 package org.keycloak.testsuite.welcomepage;
 
+import org.hamcrest.Matchers;
+import org.jboss.arquillian.drone.api.annotation.Drone;
 import org.jboss.arquillian.graphene.page.Page;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Assume;
 import org.junit.Before;
-import org.junit.BeforeClass;
 import org.junit.FixMethodOrder;
 import org.junit.Test;
 import org.junit.runners.MethodSorters;
 import org.keycloak.representations.idm.RealmRepresentation;
 import org.keycloak.testsuite.AbstractKeycloakTest;
+import org.keycloak.testsuite.arquillian.annotation.RestartContainer;
 import org.keycloak.testsuite.auth.page.WelcomePage;
 import org.keycloak.testsuite.auth.page.login.OIDCLogin;
+import org.keycloak.testsuite.util.DroneUtils;
+import org.keycloak.testsuite.util.PhantomJSBrowser;
+import org.openqa.selenium.WebDriver;
 
 import java.net.InetAddress;
 import java.net.NetworkInterface;
@@ -38,29 +43,27 @@ import java.util.Collections;
 import java.util.Enumeration;
 import java.util.List;
 
+import static org.keycloak.testsuite.util.URLUtils.navigateToUri;
+
 /**
  *
  */
+@SuppressWarnings("ArquillianDeploymentAbsent")
 @FixMethodOrder(MethodSorters.NAME_ASCENDING)
+@RestartContainer(initializeDatabase = true, intializeDatabaseWait = 0, withoutKeycloakAddUserFile = true)
 public class WelcomePageTest extends AbstractKeycloakTest {
 
-    @Page
-    private WelcomePage welcomePage;
+    @Drone
+    @PhantomJSBrowser
+    private WebDriver phantomJS;
 
     @Page
+    @PhantomJSBrowser
     protected OIDCLogin loginPage;
 
-    /*
-     * Assume adding user is skipped.
-     *
-     * Assume we are not testing migration. In migration scenario there is admin user 
-     * migrated from previous version.
-     */
-    @BeforeClass
-    public static void beforeWelcomePageTest() {
-        Assume.assumeTrue(Boolean.parseBoolean(System.getProperty("skip.add.user.json")));
-        Assume.assumeFalse(Boolean.parseBoolean(System.getProperty("skip.welcome.page.test")));
-    }
+    @Page
+    @PhantomJSBrowser
+    protected WelcomePage welcomePage;
 
     @Override
     public void addTestRealms(List<RealmRepresentation> testRealms) {
@@ -73,7 +76,11 @@ public class WelcomePageTest extends AbstractKeycloakTest {
      */
     @Before
     @Override
-    public void beforeAbstractKeycloakTest() {
+    public void beforeAbstractKeycloakTest() throws Exception {
+        Assume.assumeThat("Test skipped",
+                suiteContext.getAuthServerInfo().isJBossBased(),
+                Matchers.is(true));
+        DroneUtils.replaceDefaultWebDriver(this, phantomJS);
         setDefaultPageUriParameters();
     }
 
@@ -110,7 +117,7 @@ public class WelcomePageTest extends AbstractKeycloakTest {
         }
         return new URL("http", floatingIp, welcomePage.getInjectedUrl().getPort(), "");
     }
-    
+
     @Test
     public void test_1_LocalAccessNoAdmin() throws Exception {
         welcomePage.navigateTo();
@@ -119,7 +126,7 @@ public class WelcomePageTest extends AbstractKeycloakTest {
 
     @Test
     public void test_2_RemoteAccessNoAdmin() throws Exception {
-        driver.navigate().to(getPublicServerUrl());
+        navigateToUri(getPublicServerUrl().toString());
         Assert.assertFalse("Welcome page did not ask to create a new admin user.", welcomePage.isPasswordSet());
     }
 
@@ -135,7 +142,7 @@ public class WelcomePageTest extends AbstractKeycloakTest {
 
     @Test
     public void test_4_RemoteAccessWithAdmin() throws Exception {
-        driver.navigate().to(getPublicServerUrl());
+        navigateToUri(getPublicServerUrl().toString());
         Assert.assertTrue("Welcome page asked to set admin password.", welcomePage.isPasswordSet());
     }
 

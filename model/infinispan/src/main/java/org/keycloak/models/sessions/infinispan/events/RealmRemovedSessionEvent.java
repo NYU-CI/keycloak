@@ -17,26 +17,45 @@
 
 package org.keycloak.models.sessions.infinispan.events;
 
+import java.io.IOException;
+import java.io.ObjectInput;
+import java.io.ObjectOutput;
+import org.infinispan.commons.marshall.Externalizer;
+import org.infinispan.commons.marshall.SerializeWith;
+
 /**
  * @author <a href="mailto:mposolda@redhat.com">Marek Posolda</a>
  */
-public class RealmRemovedSessionEvent implements SessionClusterEvent {
+@SerializeWith(RealmRemovedSessionEvent.ExternalizerImpl.class)
+public class RealmRemovedSessionEvent extends SessionClusterEvent {
 
-    private String realmId;
+    public static class ExternalizerImpl implements Externalizer<RealmRemovedSessionEvent> {
 
-    public static RealmRemovedSessionEvent create(String realmId) {
-        RealmRemovedSessionEvent event = new RealmRemovedSessionEvent();
-        event.realmId = realmId;
-        return event;
+        private static final int VERSION_1 = 1;
+
+        @Override
+        public void writeObject(ObjectOutput output, RealmRemovedSessionEvent obj) throws IOException {
+            output.writeByte(VERSION_1);
+
+            obj.marshallTo(output);
+        }
+
+        @Override
+        public RealmRemovedSessionEvent readObject(ObjectInput input) throws IOException, ClassNotFoundException {
+            switch (input.readByte()) {
+                case VERSION_1:
+                    return readObjectVersion1(input);
+                default:
+                    throw new IOException("Unknown version");
+            }
+        }
+
+        public RealmRemovedSessionEvent readObjectVersion1(ObjectInput input) throws IOException, ClassNotFoundException {
+            RealmRemovedSessionEvent res = new RealmRemovedSessionEvent();
+            res.unmarshallFrom(input);
+
+            return res;
+        }
     }
 
-    @Override
-    public String toString() {
-        return String.format("RealmRemovedSessionEvent [ realmId=%s ]", realmId);
-    }
-
-    @Override
-    public String getRealmId() {
-        return realmId;
-    }
 }

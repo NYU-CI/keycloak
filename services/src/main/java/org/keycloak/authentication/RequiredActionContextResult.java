@@ -33,6 +33,7 @@ import org.keycloak.services.resources.LoginActionsService;
 import org.keycloak.sessions.AuthenticationSessionModel;
 
 import javax.ws.rs.core.Response;
+import javax.ws.rs.core.UriBuilder;
 import javax.ws.rs.core.UriInfo;
 import java.net.URI;
 
@@ -62,6 +63,10 @@ public class RequiredActionContextResult implements RequiredActionContext {
         this.httpRequest = httpRequest;
         this.user = user;
         this.factory = factory;
+    }
+
+    public RequiredActionFactory getFactory() {
+        return factory;
     }
 
     @Override
@@ -136,9 +141,10 @@ public class RequiredActionContextResult implements RequiredActionContext {
     public URI getActionUrl(String code) {
         ClientModel client = authenticationSession.getClient();
         return LoginActionsService.requiredActionProcessor(getUriInfo())
-                .queryParam(OAuth2Constants.CODE, code)
+                .queryParam(LoginActionsService.SESSION_CODE, code)
                 .queryParam(Constants.EXECUTION, getExecution())
                 .queryParam(Constants.CLIENT_ID, client.getClientId())
+                .queryParam(Constants.TAB_ID, authenticationSession.getTabId())
                 .build(getRealm().getName());
     }
 
@@ -149,8 +155,8 @@ public class RequiredActionContextResult implements RequiredActionContext {
     @Override
     public String generateCode() {
         ClientSessionCode<AuthenticationSessionModel> accessCode = new ClientSessionCode<>(session, getRealm(), getAuthenticationSession());
-        authenticationSession.setTimestamp(Time.currentTime());
-        return accessCode.getCode();
+        authenticationSession.getParentSession().setTimestamp(Time.currentTime());
+        return accessCode.getOrGenerateCode();
     }
 
 
@@ -162,10 +168,20 @@ public class RequiredActionContextResult implements RequiredActionContext {
     }
 
     @Override
+    public URI getActionUrl(boolean authSessionIdParam) {
+        URI uri = getActionUrl();
+        if (authSessionIdParam) {
+            uri = UriBuilder.fromUri(uri).queryParam(LoginActionsService.AUTH_SESSION_ID, getAuthenticationSession().getParentSession().getId()).build();
+        }
+        return uri;
+    }
+
+    @Override
     public LoginFormsProvider form() {
         String accessCode = generateCode();
         URI action = getActionUrl(accessCode);
         LoginFormsProvider provider = getSession().getProvider(LoginFormsProvider.class)
+                .setAuthenticationSession(getAuthenticationSession())
                 .setUser(getUser())
                 .setActionUri(action)
                 .setExecution(getExecution())

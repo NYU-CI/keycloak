@@ -451,4 +451,12 @@ public interface ServicesLogger extends BasicLogger {
     @Message(id=102, value= "URL '%s' doesn't match any trustedHost or trustedDomain")
     void urlDoesntMatch(String url);
 
+    @LogMessage(level = DEBUG)
+    @Message(id=103, value="Failed to reset password. User is temporarily disabled")
+    void passwordResetFailed(@Cause Throwable t);
+
+    @LogMessage(level = WARN)
+    @Message(id=104, value="Not creating user %s. It already exists.")
+    void notCreatingExistingUser(String userName);
+
 }

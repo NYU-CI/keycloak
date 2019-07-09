@@ -17,26 +17,45 @@
 
 package org.keycloak.models.sessions.infinispan.events;
 
+import java.io.IOException;
+import java.io.ObjectInput;
+import java.io.ObjectOutput;
+import org.infinispan.commons.marshall.Externalizer;
+import org.infinispan.commons.marshall.SerializeWith;
+
 /**
  * @author <a href="mailto:mposolda@redhat.com">Marek Posolda</a>
  */
-public class RemoveUserSessionsEvent implements SessionClusterEvent {
+@SerializeWith(RemoveUserSessionsEvent.ExternalizerImpl.class)
+public class RemoveUserSessionsEvent extends SessionClusterEvent {
 
-    private String realmId;
+    public static class ExternalizerImpl implements Externalizer<RemoveUserSessionsEvent> {
 
-    public static RemoveUserSessionsEvent create(String realmId) {
-        RemoveUserSessionsEvent event = new RemoveUserSessionsEvent();
-        event.realmId = realmId;
-        return event;
+        private static final int VERSION_1 = 1;
+
+        @Override
+        public void writeObject(ObjectOutput output, RemoveUserSessionsEvent obj) throws IOException {
+            output.writeByte(VERSION_1);
+
+            obj.marshallTo(output);
+        }
+
+        @Override
+        public RemoveUserSessionsEvent readObject(ObjectInput input) throws IOException, ClassNotFoundException {
+            switch (input.readByte()) {
+                case VERSION_1:
+                    return readObjectVersion1(input);
+                default:
+                    throw new IOException("Unknown version");
+            }
+        }
+
+        public RemoveUserSessionsEvent readObjectVersion1(ObjectInput input) throws IOException, ClassNotFoundException {
+            RemoveUserSessionsEvent res = new RemoveUserSessionsEvent();
+            res.unmarshallFrom(input);
+
+            return res;
+        }
     }
 
-    @Override
-    public String toString() {
-        return String.format("RemoveUserSessionsEvent [ realmId=%s ]", realmId);
-    }
-
-    @Override
-    public String getRealmId() {
-        return realmId;
-    }
 }

@@ -27,10 +27,8 @@
         <subsystem>keycloak-infinispan.xml</subsystem>
         <subsystem>jaxrs.xml</subsystem>
         <subsystem>jca.xml</subsystem>
-        <subsystem>jdr.xml</subsystem>
         <subsystem supplement="domain">jmx.xml</subsystem>
         <subsystem>jpa.xml</subsystem>
-        <subsystem>jsf.xml</subsystem>
         <subsystem>mail.xml</subsystem>
         <subsystem>naming.xml</subsystem>
         <subsystem>remoting.xml</subsystem>
@@ -39,7 +37,7 @@
         <subsystem>security.xml</subsystem>
         <subsystem>security-manager.xml</subsystem>
         <subsystem>transactions.xml</subsystem>
-        <subsystem>undertow.xml</subsystem>
+        <subsystem>keycloak-undertow.xml</subsystem>
         <subsystem>keycloak-server.xml</subsystem>
     </subsystems>
     <subsystems name="auth-server-clustered">
@@ -54,11 +52,9 @@
         <subsystem supplement="ha">keycloak-infinispan.xml</subsystem>
         <subsystem>jaxrs.xml</subsystem>
         <subsystem>jca.xml</subsystem>
-        <subsystem>jdr.xml</subsystem>
         <subsystem>jgroups.xml</subsystem>
         <subsystem supplement="domain">jmx.xml</subsystem>
         <subsystem>jpa.xml</subsystem>
-        <subsystem>jsf.xml</subsystem>
         <subsystem>mail.xml</subsystem>
         <subsystem>mod_cluster.xml</subsystem>
         <subsystem>naming.xml</subsystem>
@@ -68,7 +64,7 @@
         <subsystem>security.xml</subsystem>
         <subsystem>security-manager.xml</subsystem>
         <subsystem>transactions.xml</subsystem>
-        <subsystem supplement="ha">undertow.xml</subsystem>
+        <subsystem supplement="ha">keycloak-undertow.xml</subsystem>
         <subsystem>keycloak-server.xml</subsystem>
     </subsystems>
     <subsystems name="load-balancer">

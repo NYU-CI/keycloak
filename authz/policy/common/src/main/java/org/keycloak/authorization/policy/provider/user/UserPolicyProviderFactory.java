@@ -25,7 +25,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import org.keycloak.Config;
@@ -52,7 +51,7 @@ import org.keycloak.util.JsonSerialization;
  */
 public class UserPolicyProviderFactory implements PolicyProviderFactory<UserPolicyRepresentation> {
 
-    private UserPolicyProvider provider = new UserPolicyProvider((Function<Policy, UserPolicyRepresentation>) policy -> toRepresentation(policy, new UserPolicyRepresentation()));
+    private UserPolicyProvider provider = new UserPolicyProvider(this::toRepresentation);
 
     @Override
     public String getName() {
@@ -75,12 +74,15 @@ public class UserPolicyProviderFactory implements PolicyProviderFactory<UserPoli
     }
 
     @Override
-    public UserPolicyRepresentation toRepresentation(Policy policy, UserPolicyRepresentation representation) {
+    public UserPolicyRepresentation toRepresentation(Policy policy, AuthorizationProvider authorization) {
+        UserPolicyRepresentation representation = new UserPolicyRepresentation();
+
         try {
             representation.setUsers(JsonSerialization.readValue(policy.getConfig().get("users"), Set.class));
         } catch (IOException cause) {
             throw new RuntimeException("Failed to deserialize roles", cause);
         }
+
         return representation;
     }
 
@@ -110,7 +112,7 @@ public class UserPolicyProviderFactory implements PolicyProviderFactory<UserPoli
 
     @Override
     public void onExport(Policy policy, PolicyRepresentation representation, AuthorizationProvider authorizationProvider) {
-        UserPolicyRepresentation userRep = toRepresentation(policy, new UserPolicyRepresentation());
+        UserPolicyRepresentation userRep = toRepresentation(policy, authorizationProvider);
         Map<String, String> config = new HashMap<>();
 
         try {
@@ -181,7 +183,7 @@ public class UserPolicyProviderFactory implements PolicyProviderFactory<UserPoli
                 RealmModel realm = ((UserRemovedEvent) event).getRealm();
                 ResourceServerStore resourceServerStore = storeFactory.getResourceServerStore();
                 realm.getClients().forEach(clientModel -> {
-                    ResourceServer resourceServer = resourceServerStore.findByClient(clientModel.getId());
+                    ResourceServer resourceServer = resourceServerStore.findById(clientModel.getId());
 
                     if (resourceServer != null) {
                         policyStore.findByType(getId(), resourceServer.getId()).forEach(policy -> {

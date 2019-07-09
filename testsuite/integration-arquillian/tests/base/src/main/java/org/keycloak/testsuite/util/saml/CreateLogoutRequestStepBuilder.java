@@ -97,11 +97,8 @@ public class CreateLogoutRequestStepBuilder extends SamlDocumentStepBuilder<Logo
         SAML2LogoutRequestBuilder builder = new SAML2LogoutRequestBuilder()
           .destination(authServerSamlUrl.toString())
           .issuer(issuer)
-          .sessionIndex(sessionIndex());
-
-        if (nameId() != null) {
-            builder = builder.userPrincipal(nameId().getValue(), nameId().getFormat().toString());
-        }
+          .sessionIndex(sessionIndex())
+          .nameId(nameId());
 
         String documentAsString = DocumentUtil.getDocumentAsString(builder.buildDocument());
         String transformed = getTransformer().transform(documentAsString);

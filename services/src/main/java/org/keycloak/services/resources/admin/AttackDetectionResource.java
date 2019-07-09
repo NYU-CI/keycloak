@@ -18,8 +18,8 @@ package org.keycloak.services.resources.admin;
 
 import org.jboss.logging.Logger;
 import org.jboss.resteasy.annotations.cache.NoCache;
-import org.jboss.resteasy.spi.NotFoundException;
 import org.keycloak.common.ClientConnection;
+import org.keycloak.common.util.Time;
 import org.keycloak.events.admin.OperationType;
 import org.keycloak.events.admin.ResourceType;
 import org.keycloak.models.KeycloakSession;
@@ -37,7 +37,6 @@ import javax.ws.rs.Produces;
 import javax.ws.rs.core.Context;
 import javax.ws.rs.core.HttpHeaders;
 import javax.ws.rs.core.MediaType;
-import javax.ws.rs.core.UriInfo;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -56,9 +55,6 @@ public class AttackDetectionResource {
 
     @Context
     protected KeycloakSession session;
-
-    @Context
-    protected UriInfo uriInfo;
 
     @Context
     protected ClientConnection connection;
@@ -100,9 +96,17 @@ public class AttackDetectionResource {
 
         UserLoginFailureModel model = session.sessions().getUserLoginFailure(realm, userId);
         if (model == null) return data;
-        if (session.getProvider(BruteForceProtector.class).isTemporarilyDisabled(session, realm, user)) {
+
+        boolean disabled;
+        if (user == null) {
+            disabled = Time.currentTime() < model.getFailedLoginNotBefore();
+        } else {
+            disabled = session.getProvider(BruteForceProtector.class).isTemporarilyDisabled(session, realm, user);
+        }
+        if (disabled) {
             data.put("disabled", true);
         }
+
         data.put("numFailures", model.getNumFailures());
         data.put("lastFailure", model.getLastFailure());
         data.put("lastIPFailure", model.getLastIPFailure());
@@ -128,7 +132,7 @@ public class AttackDetectionResource {
         UserLoginFailureModel model = session.sessions().getUserLoginFailure(realm, userId);
         if (model != null) {
             session.sessions().removeUserLoginFailure(realm, userId);
-            adminEvent.operation(OperationType.DELETE).resourcePath(uriInfo).success();
+            adminEvent.operation(OperationType.DELETE).resourcePath(session.getContext().getUri()).success();
         }
     }
 
@@ -144,7 +148,7 @@ public class AttackDetectionResource {
         auth.users().requireManage();
 
         session.sessions().removeAllUserLoginFailures(realm);
-        adminEvent.operation(OperationType.DELETE).resourcePath(uriInfo).success();
+        adminEvent.operation(OperationType.DELETE).resourcePath(session.getContext().getUri()).success();
     }
 
 

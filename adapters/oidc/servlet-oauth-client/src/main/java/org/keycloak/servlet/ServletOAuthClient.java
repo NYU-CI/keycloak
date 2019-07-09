@@ -36,6 +36,8 @@ import javax.security.cert.X509Certificate;
 import javax.servlet.http.Cookie;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+
+import java.io.BufferedInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
@@ -49,7 +51,11 @@ import java.security.SecureRandom;
 /**
  * @author <a href="mailto:bill@burkecentral.com">Bill Burke</a>
  * @version $Revision: 1 $
+ * @deprecated Class is deprecated and may be removed in the future. If you want to maintain this class for Keycloak community, please
+ * contact Keycloak team on keycloak-dev mailing list. You can fork it into your github repository and
+ * Keycloak team will reference it from "Keycloak Extensions" page.
  */
+@Deprecated
 public class ServletOAuthClient extends KeycloakDeploymentDelegateOAuthClient {
 
 	// https://tools.ietf.org/html/rfc7636#section-4
@@ -265,6 +271,8 @@ public class ServletOAuthClient extends KeycloakDeploymentDelegateOAuthClient {
         public Request getRequest() {
             return new Request() {
 
+                private InputStream inputStream;
+
                 @Override
                 public String getFirstParam(String param) {
                     return servletRequest.getParameter(param);
@@ -314,10 +322,27 @@ public class ServletOAuthClient extends KeycloakDeploymentDelegateOAuthClient {
 
                 @Override
                 public InputStream getInputStream() {
+                    return getInputStream(false);
+                }
+
+                @Override
+                public InputStream getInputStream(boolean buffered) {
+                    if (inputStream != null) {
+                        return inputStream;
+                    }
+
+                    if (buffered) {
+                        try {
+                            return inputStream = new BufferedInputStream(servletRequest.getInputStream());
+                        } catch (IOException e) {
+                            throw new RuntimeException(e);
+                        }
+                    }
+
                     try {
                         return servletRequest.getInputStream();
-                    } catch (IOException ioe) {
-                        throw new RuntimeException(ioe);
+                    } catch (IOException e) {
+                        throw new RuntimeException(e);
                     }
                 }
 

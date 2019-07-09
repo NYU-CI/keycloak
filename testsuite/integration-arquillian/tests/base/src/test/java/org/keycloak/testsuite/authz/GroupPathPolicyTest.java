@@ -22,7 +22,6 @@ import static org.junit.Assert.fail;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.HashMap;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -38,22 +37,19 @@ import org.keycloak.admin.client.resource.RealmResource;
 import org.keycloak.authorization.client.AuthorizationDeniedException;
 import org.keycloak.authorization.client.AuthzClient;
 import org.keycloak.authorization.client.Configuration;
-import org.keycloak.authorization.client.representation.AuthorizationRequest;
-import org.keycloak.authorization.client.representation.AuthorizationResponse;
-import org.keycloak.authorization.client.representation.PermissionRequest;
 import org.keycloak.protocol.oidc.OIDCLoginProtocol;
 import org.keycloak.protocol.oidc.mappers.GroupMembershipMapper;
 import org.keycloak.protocol.oidc.mappers.OIDCAttributeMapperHelper;
 import org.keycloak.representations.idm.GroupRepresentation;
 import org.keycloak.representations.idm.ProtocolMapperRepresentation;
 import org.keycloak.representations.idm.RealmRepresentation;
-import org.keycloak.representations.idm.RoleRepresentation;
 import org.keycloak.representations.idm.UserRepresentation;
+import org.keycloak.representations.idm.authorization.AuthorizationRequest;
+import org.keycloak.representations.idm.authorization.AuthorizationResponse;
 import org.keycloak.representations.idm.authorization.GroupPolicyRepresentation;
+import org.keycloak.representations.idm.authorization.PermissionRequest;
 import org.keycloak.representations.idm.authorization.ResourcePermissionRepresentation;
 import org.keycloak.representations.idm.authorization.ResourceRepresentation;
-import org.keycloak.representations.idm.authorization.RolePolicyRepresentation;
-import org.keycloak.testsuite.AbstractKeycloakTest;
 import org.keycloak.testsuite.util.AdminClientUtil;
 import org.keycloak.testsuite.util.ClientBuilder;
 import org.keycloak.testsuite.util.GroupBuilder;
@@ -66,7 +62,7 @@ import org.keycloak.util.JsonSerialization;
 /**
  * @author <a href="mailto:psilva@redhat.com">Pedro Igor</a>
  */
-public class GroupPathPolicyTest extends AbstractKeycloakTest {
+public class GroupPathPolicyTest extends AbstractAuthzTest {
 
     @Override
     public void addTestRealms(List<RealmRepresentation> testRealms) {
@@ -75,7 +71,6 @@ public class GroupPathPolicyTest extends AbstractKeycloakTest {
         groupProtocolMapper.setName("groups");
         groupProtocolMapper.setProtocolMapper(GroupMembershipMapper.PROVIDER_ID);
         groupProtocolMapper.setProtocol(OIDCLoginProtocol.LOGIN_PROTOCOL);
-        groupProtocolMapper.setConsentRequired(false);
         Map<String, String> config = new HashMap<>();
         config.put(OIDCAttributeMapperHelper.TOKEN_CLAIM_NAME, "groups");
         config.put(OIDCAttributeMapperHelper.INCLUDE_IN_ACCESS_TOKEN, "true");
@@ -128,14 +123,11 @@ public class GroupPathPolicyTest extends AbstractKeycloakTest {
     @Test
     public void testAllowParentAndChildren() {
         AuthzClient authzClient = getAuthzClient();
-        PermissionRequest request = new PermissionRequest();
-
-        request.setResourceSetName("Resource A");
-
-        String ticket = authzClient.protection().permission().forResource(request).getTicket();
+        PermissionRequest request = new PermissionRequest("Resource A");
+        String ticket = authzClient.protection().permission().create(request).getTicket();
         AuthorizationResponse response = authzClient.authorization("marta", "password").authorize(new AuthorizationRequest(ticket));
 
-        assertNotNull(response.getRpt());
+        assertNotNull(response.getToken());
 
         RealmResource realm = getRealm();
         GroupRepresentation group = getGroup("/Group A/Group B/Group C");
@@ -143,21 +135,18 @@ public class GroupPathPolicyTest extends AbstractKeycloakTest {
 
         realm.users().get(user.getId()).joinGroup(group.getId());
 
-        ticket = authzClient.protection().permission().forResource(request).getTicket();
+        ticket = authzClient.protection().permission().create(request).getTicket();
         response = authzClient.authorization("kolo", "password").authorize(new AuthorizationRequest(ticket));
 
-        assertNotNull(response.getRpt());
+        assertNotNull(response.getToken());
     }
 
     @Test
     public void testOnlyChildrenPolicy() throws Exception {
         RealmResource realm = getRealm();
         AuthzClient authzClient = getAuthzClient();
-        PermissionRequest request = new PermissionRequest();
-
-        request.setResourceSetName("Resource B");
-
-        String ticket = authzClient.protection().permission().forResource(request).getTicket();
+        PermissionRequest request = new PermissionRequest("Resource B");
+        String ticket = authzClient.protection().permission().create(request).getTicket();
 
         try {
             authzClient.authorization("kolo", "password").authorize(new AuthorizationRequest(ticket));
@@ -173,7 +162,7 @@ public class GroupPathPolicyTest extends AbstractKeycloakTest {
 
         AuthorizationResponse response = authzClient.authorization("kolo", "password").authorize(new AuthorizationRequest(ticket));
 
-        assertNotNull(response.getRpt());
+        assertNotNull(response.getToken());
 
         try {
             authzClient.authorization("marta", "password").authorize(new AuthorizationRequest(ticket));
@@ -190,7 +179,7 @@ public class GroupPathPolicyTest extends AbstractKeycloakTest {
         policy.setGroupsClaim("groups");
         policy.addGroupPath(groupPath, extendChildren);
 
-        getClient().authorization().policies().group().create(policy);
+        getClient().authorization().policies().group().create(policy).close();
     }
 
     private void createResourcePermission(String name, String resource, String... policies) {
@@ -200,19 +189,19 @@ public class GroupPathPolicyTest extends AbstractKeycloakTest {
         permission.addResource(resource);
         permission.addPolicy(policies);
 
-        getClient().authorization().permissions().resource().create(permission);
+        getClient().authorization().permissions().resource().create(permission).close();
     }
 
     private void createResource(String name) {
         AuthorizationResource authorization = getClient().authorization();
         ResourceRepresentation resource = new ResourceRepresentation(name);
 
-        authorization.resources().create(resource);
+        authorization.resources().create(resource).close();
     }
 
     private RealmResource getRealm() {
         try {
-            return AdminClientUtil.createAdminClient().realm("authz-test");
+            return getAdminClient().realm("authz-test");
         } catch (Exception e) {
             throw new RuntimeException("Failed to create admin client");
         }
@@ -224,11 +213,7 @@ public class GroupPathPolicyTest extends AbstractKeycloakTest {
     }
 
     private AuthzClient getAuthzClient() {
-        try {
-            return AuthzClient.create(JsonSerialization.readValue(getClass().getResourceAsStream("/authorization-test/default-keycloak.json"), Configuration.class));
-        } catch (IOException cause) {
-            throw new RuntimeException("Failed to create authz client", cause);
-        }
+        return AuthzClient.create(getClass().getResourceAsStream("/authorization-test/default-keycloak.json"));
     }
 
     private ClientResource getClient() {

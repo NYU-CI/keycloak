@@ -17,6 +17,8 @@
 
 package org.keycloak.testsuite.pages.social;
 
+import org.keycloak.testsuite.util.WaitUtils;
+import org.openqa.selenium.NoSuchElementException;
 import org.openqa.selenium.WebElement;
 import org.openqa.selenium.support.FindBy;
 
@@ -35,9 +37,18 @@ public class MicrosoftLoginPage extends AbstractSocialLoginPage {
 
     @Override
     public void login(String user, String password) {
+        WaitUtils.pause(5000); // we need to take it a bit slower
+        usernameInput.clear();
         usernameInput.sendKeys(user);
         submitButton.click();
-        passwordInput.sendKeys(password);
-        submitButton.click();
+
+        WaitUtils.pause(5000);
+        try {
+            passwordInput.sendKeys(password);
+            submitButton.click();
+        }
+        catch (NoSuchElementException e) {
+            log.info("Already logged in to Microsoft IdP, no need to enter password");
+        }
     }
 }

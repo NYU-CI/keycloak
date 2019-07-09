@@ -33,8 +33,21 @@ public class LoginConfigTotpPage extends AbstractPage {
     @FindBy(css = "input[type=\"submit\"]")
     private WebElement submitButton;
 
+    @FindBy(id = "mode-barcode")
+    private WebElement barcodeLink;
+
+    @FindBy(id = "mode-manual")
+    private WebElement manualLink;
+
+    @FindBy(className = "alert-error")
+    private WebElement loginErrorMessage;
+
     public void configure(String totp) {
         totpInput.sendKeys(totp);
+        submitButton.click();
+    }
+
+    public void submit() {
         submitButton.click();
     }
 
@@ -43,11 +56,23 @@ public class LoginConfigTotpPage extends AbstractPage {
     }
 
     public boolean isCurrent() {
-        return driver.getTitle().equals("Mobile Authenticator Setup");
+        return PageUtils.getPageTitle(driver).equals("Mobile Authenticator Setup");
     }
 
     public void open() {
         throw new UnsupportedOperationException();
+    }
+
+    public void clickManual() {
+        manualLink.click();
+    }
+
+    public void clickBarcode() {
+        barcodeLink.click();
+    }
+
+    public String getError() {
+        return loginErrorMessage.getText();
     }
 
 }

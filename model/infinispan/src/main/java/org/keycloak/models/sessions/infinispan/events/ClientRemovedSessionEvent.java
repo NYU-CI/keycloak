@@ -17,34 +17,64 @@
 
 package org.keycloak.models.sessions.infinispan.events;
 
-import org.keycloak.cluster.ClusterEvent;
+import org.keycloak.models.KeycloakSession;
+import java.io.IOException;
+import java.io.ObjectInput;
+import java.io.ObjectOutput;
+import org.infinispan.commons.marshall.Externalizer;
+import org.infinispan.commons.marshall.MarshallUtil;
+import org.infinispan.commons.marshall.SerializeWith;
 
 /**
  * @author <a href="mailto:mposolda@redhat.com">Marek Posolda</a>
  */
-public class ClientRemovedSessionEvent implements SessionClusterEvent  {
+@SerializeWith(ClientRemovedSessionEvent.ExternalizerImpl.class)
+public class ClientRemovedSessionEvent extends SessionClusterEvent  {
 
-    private String realmId;
     private String clientUuid;
 
-    public static ClientRemovedSessionEvent create(String realmId, String clientUuid) {
-        ClientRemovedSessionEvent event = new ClientRemovedSessionEvent();
-        event.realmId = realmId;
+    public static ClientRemovedSessionEvent create(KeycloakSession session, String eventKey, String realmId, boolean resendingEvent, String clientUuid) {
+        ClientRemovedSessionEvent event = ClientRemovedSessionEvent.createEvent(ClientRemovedSessionEvent.class, eventKey, session, realmId, resendingEvent);
         event.clientUuid = clientUuid;
         return event;
     }
 
     @Override
     public String toString() {
-        return String.format("ClientRemovedSessionEvent [ realmId=%s , clientUuid=%s ]", realmId, clientUuid);
-    }
-
-    @Override
-    public String getRealmId() {
-        return realmId;
+        return String.format("ClientRemovedSessionEvent [ realmId=%s , clientUuid=%s ]", getRealmId(), clientUuid);
     }
 
     public String getClientUuid() {
         return clientUuid;
+    }
+
+    public static class ExternalizerImpl implements Externalizer<ClientRemovedSessionEvent> {
+
+        private static final int VERSION_1 = 1;
+
+        @Override
+        public void writeObject(ObjectOutput output, ClientRemovedSessionEvent obj) throws IOException {
+            output.writeByte(VERSION_1);
+            obj.marshallTo(output);
+            MarshallUtil.marshallString(obj.clientUuid, output);
+        }
+
+        @Override
+        public ClientRemovedSessionEvent readObject(ObjectInput input) throws IOException, ClassNotFoundException {
+            switch (input.readByte()) {
+                case VERSION_1:
+                    return readObjectVersion1(input);
+                default:
+                    throw new IOException("Unknown version");
+            }
+        }
+
+        public ClientRemovedSessionEvent readObjectVersion1(ObjectInput input) throws IOException, ClassNotFoundException {
+            ClientRemovedSessionEvent res = new ClientRemovedSessionEvent();
+            res.unmarshallFrom(input);
+            res.clientUuid = MarshallUtil.unmarshallString(input);
+
+            return res;
+        }
     }
 }

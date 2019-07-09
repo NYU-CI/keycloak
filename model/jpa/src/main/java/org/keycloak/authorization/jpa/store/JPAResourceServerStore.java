@@ -18,22 +18,18 @@
 package org.keycloak.authorization.jpa.store;
 
 import org.keycloak.authorization.AuthorizationProvider;
+import org.keycloak.authorization.jpa.entities.PermissionTicketEntity;
 import org.keycloak.authorization.jpa.entities.PolicyEntity;
 import org.keycloak.authorization.jpa.entities.ResourceEntity;
 import org.keycloak.authorization.jpa.entities.ResourceServerEntity;
 import org.keycloak.authorization.jpa.entities.ScopeEntity;
-import org.keycloak.authorization.model.Policy;
-import org.keycloak.authorization.model.Resource;
 import org.keycloak.authorization.model.ResourceServer;
-import org.keycloak.authorization.model.Scope;
 import org.keycloak.authorization.store.ResourceServerStore;
-import org.keycloak.models.utils.KeycloakModelUtils;
+import org.keycloak.models.ModelException;
+import org.keycloak.storage.StorageId;
 
 import javax.persistence.EntityManager;
-import javax.persistence.NoResultException;
-import javax.persistence.Query;
 import javax.persistence.TypedQuery;
-import java.util.LinkedList;
 import java.util.List;
 
 /**
@@ -51,10 +47,12 @@ public class JPAResourceServerStore implements ResourceServerStore {
 
     @Override
     public ResourceServer create(String clientId) {
+        if (!StorageId.isLocalStorage(clientId)) {
+            throw new ModelException("Creating resource server from federated ClientModel not supported");
+        }
         ResourceServerEntity entity = new ResourceServerEntity();
 
-        entity.setId(KeycloakModelUtils.generateId());
-        entity.setClientId(clientId);
+        entity.setId(clientId);
 
         this.entityManager.persist(entity);
 
@@ -78,6 +76,17 @@ public class JPAResourceServerStore implements ResourceServerStore {
             }
         }
 
+        {
+            TypedQuery<String> query = entityManager.createNamedQuery("findPermissionTicketIdByServerId", String.class);
+
+            query.setParameter("serverId", id);
+
+            List<String> result = query.getResultList();
+            for (String permissionId : result) {
+                entityManager.remove(entityManager.getReference(PermissionTicketEntity.class, permissionId));
+            }
+        }
+
         //entityManager.createNamedQuery("deleteResourceByResourceServer")
         //        .setParameter("serverId", id).executeUpdate();
         {
@@ -86,7 +95,6 @@ public class JPAResourceServerStore implements ResourceServerStore {
             query.setParameter("serverId", id);
 
             List<String> result = query.getResultList();
-            List<Resource> list = new LinkedList<>();
             for (String resourceId : result) {
                 entityManager.remove(entityManager.getReference(ResourceEntity.class, resourceId));
             }
@@ -115,18 +123,5 @@ public class JPAResourceServerStore implements ResourceServerStore {
         ResourceServerEntity entity = entityManager.find(ResourceServerEntity.class, id);
         if (entity == null) return null;
         return new ResourceServerAdapter(entity, entityManager, provider.getStoreFactory());
-    }
-
-    @Override
-    public ResourceServer findByClient(final String clientId) {
-        TypedQuery<String> query = entityManager.createNamedQuery("findResourceServerIdByClient", String.class);
-
-        query.setParameter("clientId", clientId);
-        try {
-            String id = query.getSingleResult();
-            return provider.getStoreFactory().getResourceServerStore().findById(id);
-        } catch (NoResultException ex) {
-            return null;
-        }
     }
 }

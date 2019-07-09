@@ -26,7 +26,6 @@ import org.keycloak.common.Profile;
 import org.keycloak.common.util.KeycloakUriBuilder;
 import org.keycloak.events.EventBuilder;
 import org.keycloak.models.ClientModel;
-import org.keycloak.models.Constants;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.RealmModel;
 import org.keycloak.protocol.LoginProtocol;
@@ -34,8 +33,10 @@ import org.keycloak.protocol.LoginProtocolFactory;
 import org.keycloak.services.clientregistration.ClientRegistrationService;
 import org.keycloak.services.managers.RealmManager;
 import org.keycloak.services.resource.RealmResourceProvider;
+import org.keycloak.services.resources.account.AccountLoader;
 import org.keycloak.services.util.CacheControlUtil;
 import org.keycloak.services.util.ResolveRelative;
+import org.keycloak.utils.MediaTypeMatcher;
 import org.keycloak.utils.ProfileHelper;
 import org.keycloak.wellknown.WellKnownProvider;
 
@@ -69,9 +70,6 @@ public class RealmsResource {
 
     @Context
     private HttpRequest request;
-
-    @Context
-    private UriInfo uriInfo;
 
     public static UriBuilder realmBaseUrl(UriInfo uriInfo) {
         UriBuilder baseUriBuilder = uriInfo.getBaseUriBuilder();
@@ -162,7 +160,7 @@ public class RealmsResource {
         if (client.getRootUrl() != null && (client.getBaseUrl() == null || client.getBaseUrl().isEmpty())) {
             targetUri = KeycloakUriBuilder.fromUri(client.getRootUrl()).build();
         } else {
-            targetUri = KeycloakUriBuilder.fromUri(ResolveRelative.resolveRelativeUri(uriInfo.getRequestUri(), client.getRootUrl(), client.getBaseUrl())).build();
+            targetUri = KeycloakUriBuilder.fromUri(ResolveRelative.resolveRelativeUri(session.getContext().getUri().getRequestUri(), client.getRootUrl(), client.getBaseUrl())).build();
         }
 
         return Response.seeOther(targetUri).build();
@@ -206,20 +204,10 @@ public class RealmsResource {
     }
 
     @Path("{realm}/account")
-    public AccountService getAccountService(final @PathParam("realm") String name) {
+    public Object getAccountService(final @PathParam("realm") String name) {
         RealmModel realm = init(name);
-
-        ClientModel client = realm.getClientByClientId(Constants.ACCOUNT_MANAGEMENT_CLIENT_ID);
-        if (client == null || !client.isEnabled()) {
-            logger.debug("account management not enabled");
-            throw new NotFoundException("account management not enabled");
-        }
-
         EventBuilder event = new EventBuilder(realm, session, clientConnection);
-        AccountService accountService = new AccountService(realm, client, event);
-        ResteasyProviderFactory.getInstance().injectProperties(accountService);
-        accountService.init();
-        return accountService;
+        return new AccountLoader().getAccountService(session, event);
     }
 
     @Path("{realm}")
@@ -269,8 +257,6 @@ public class RealmsResource {
 
     @Path("{realm}/authz")
     public Object getAuthorizationService(@PathParam("realm") String name) {
-        ProfileHelper.requireFeature(Profile.Feature.AUTHORIZATION);
-
         init(name);
         AuthorizationProvider authorization = this.session.getProvider(AuthorizationProvider.class);
         AuthorizationService service = new AuthorizationService(authorization);

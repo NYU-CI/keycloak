@@ -18,6 +18,7 @@
 package org.keycloak.connections.infinispan;
 
 import org.infinispan.Cache;
+import org.infinispan.client.hotrod.RemoteCache;
 import org.keycloak.provider.Provider;
 
 /**
@@ -33,8 +34,10 @@ public interface InfinispanConnectionProvider extends Provider {
     String USER_REVISIONS_CACHE_NAME = "userRevisions";
     int USER_REVISIONS_CACHE_DEFAULT_MAX = 100000;
 
-    String SESSION_CACHE_NAME = "sessions";
-    String OFFLINE_SESSION_CACHE_NAME = "offlineSessions";
+    String USER_SESSION_CACHE_NAME = "sessions";
+    String CLIENT_SESSION_CACHE_NAME = "clientSessions";
+    String OFFLINE_USER_SESSION_CACHE_NAME = "offlineSessions";
+    String OFFLINE_CLIENT_SESSION_CACHE_NAME = "offlineClientSessions";
     String LOGIN_FAILURE_CACHE_NAME = "loginFailures";
     String AUTHENTICATION_SESSIONS_CACHE_NAME = "authenticationSessions";
     String WORK_CACHE_NAME = "work";
@@ -66,14 +69,14 @@ public interface InfinispanConnectionProvider extends Provider {
     <K, V> Cache<K, V> getCache(String name);
 
     /**
-     * @return Address of current node in cluster. In non-cluster environment, it returns some other non-null value (eg. hostname with some random value like "host-123456" )
+     * Get remote cache of given name. Could just retrieve the remote cache from the remoteStore configured in given infinispan cache and/or
+     * alternatively return the secured remoteCache (remoteCache corresponding to secured hotrod endpoint)
      */
-    String getNodeName();
+    <K, V> RemoteCache<K, V> getRemoteCache(String name);
 
     /**
-     *
-     * @return siteName or null if we're not in environment with multiple sites (data centers)
+     * @return Information about cluster topology
      */
-    String getSiteName();
+    TopologyInfo getTopologyInfo();
 
 }

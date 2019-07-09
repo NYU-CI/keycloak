@@ -21,6 +21,7 @@ import org.keycloak.saml.common.PicketLinkLoggerFactory;
 import org.keycloak.saml.common.constants.GeneralConstants;
 import org.keycloak.saml.common.exceptions.ConfigurationException;
 import org.keycloak.saml.common.exceptions.ParsingException;
+import org.keycloak.saml.common.util.SecurityActions;
 import org.keycloak.saml.common.util.SystemPropertiesUtil;
 
 import javax.xml.datatype.DatatypeConfigurationException;
@@ -45,17 +46,25 @@ public class XMLTimeUtil {
      * Add additional time in miliseconds
      *
      * @param value calendar whose value needs to be updated
-     * @param milis
+     * @param millis
      *
      * @return calendar value with the addition
      *
      * @throws org.keycloak.saml.common.exceptions.ConfigurationException
      */
-    public static XMLGregorianCalendar add(XMLGregorianCalendar value, long milis) {
+    public static XMLGregorianCalendar add(XMLGregorianCalendar value, long millis) {
+        if (value == null) {
+            return null;
+        }
+
         XMLGregorianCalendar newVal = (XMLGregorianCalendar) value.clone();
 
+        if (millis == 0) {
+            return newVal;
+        }
+
         Duration duration;
-        duration = DATATYPE_FACTORY.get().newDuration(milis);
+        duration = DATATYPE_FACTORY.get().newDuration(millis);
         newVal.add(duration);
         return newVal;
     }
@@ -64,16 +73,14 @@ public class XMLTimeUtil {
      * Subtract some miliseconds from the time value
      *
      * @param value
-     * @param milis miliseconds entered in a positive value
+     * @param millis miliseconds entered in a positive value
      *
      * @return
      *
      * @throws ConfigurationException
      */
-    public static XMLGregorianCalendar subtract(XMLGregorianCalendar value, long milis) {
-        if (milis < 0)
-            throw logger.invalidArgumentError("milis should be a positive value");
-        return add(value, -1 * milis);
+    public static XMLGregorianCalendar subtract(XMLGregorianCalendar value, long millis) {
+        return add(value, - millis);
     }
 
     /**
@@ -105,7 +112,7 @@ public class XMLTimeUtil {
      *
      * @throws ConfigurationException
      */
-    public static XMLGregorianCalendar getIssueInstant() throws ConfigurationException {
+    public static XMLGregorianCalendar getIssueInstant() {
         return getIssueInstant(getCurrentTimeZoneID());
     }
 
@@ -143,7 +150,7 @@ public class XMLTimeUtil {
      * @return
      */
     public static boolean isValid(XMLGregorianCalendar now, XMLGregorianCalendar notbefore, XMLGregorianCalendar notOnOrAfter) {
-        int val = 0;
+        int val;
 
         if (notbefore != null) {
             val = notbefore.compare(now);

@@ -34,7 +34,6 @@ import org.keycloak.models.RoleModel;
 import org.keycloak.representations.idm.authorization.DecisionStrategy;
 import org.keycloak.services.ForbiddenException;
 
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -231,7 +230,20 @@ class RolePermissions implements RolePermissionEvaluator, RolePermissionManageme
                     } else {
                         return true;
                     }
-                } else {
+                } else if (role.getName().equals(AdminRoles.REALM_ADMIN)) {
+                    // check to see if we have masterRealm.admin role.  Otherwise abort
+                    if (root.adminsRealm() == null || !root.adminsRealm().getName().equals(Config.getAdminRealm())) {
+                        return adminConflictMessage(role);
+                    }
+
+                    RealmModel masterRealm = root.adminsRealm();
+                    RoleModel adminRole = masterRealm.getRole(AdminRoles.ADMIN);
+                    if (root.admin().hasRole(adminRole)) {
+                        return true;
+                    } else {
+                        return adminConflictMessage(role);
+                    }
+                 } else {
                     return adminConflictMessage(role);
                 }
 
@@ -240,6 +252,7 @@ class RolePermissions implements RolePermissionEvaluator, RolePermissionManageme
                 if (role.getContainer() instanceof RealmModel) {
                     RealmModel realm = (RealmModel)role.getContainer();
                     // If realm role is master admin role then abort
+                    // if realm name is master realm, than we know this is a admin role in master realm.
                     if (realm.getName().equals(Config.getAdminRealm())) {
                         return adminConflictMessage(role);
                     }
@@ -294,7 +307,7 @@ class RolePermissions implements RolePermissionEvaluator, RolePermissionManageme
 
         Resource roleResource = resource(role);
         Scope mapRoleScope = mapRoleScope(resourceServer);
-        if (root.evaluatePermission(roleResource, mapRoleScope, resourceServer)) {
+        if (root.evaluatePermission(roleResource, resourceServer, mapRoleScope)) {
             return checkAdminRoles(role);
         } else {
             return false;
@@ -311,7 +324,13 @@ class RolePermissions implements RolePermissionEvaluator, RolePermissionManageme
 
     @Override
     public boolean canList(RoleContainerModel container) {
-        return root.hasAnyAdminRole();
+        if (canView(container)) {
+            return true;
+        } else if (container instanceof RealmModel) {
+            return root.realm().canListRealms();
+        } else {
+            return root.clients().canList((ClientModel)container);
+        }
     }
 
     @Override
@@ -378,7 +397,7 @@ class RolePermissions implements RolePermissionEvaluator, RolePermissionManageme
 
         Resource roleResource = resource(role);
         Scope scope = mapCompositeScope(resourceServer);
-        if (root.evaluatePermission(roleResource, scope, resourceServer)) {
+        if (root.evaluatePermission(roleResource, resourceServer, scope)) {
             return checkAdminRoles(role);
         } else {
             return false;
@@ -417,7 +436,7 @@ class RolePermissions implements RolePermissionEvaluator, RolePermissionManageme
 
         Resource roleResource = resource(role);
         Scope scope = mapClientScope(resourceServer);
-        return root.evaluatePermission(roleResource, scope, resourceServer);
+        return root.evaluatePermission(roleResource, resourceServer, scope);
     }
 
     @Override
@@ -434,7 +453,7 @@ class RolePermissions implements RolePermissionEvaluator, RolePermissionManageme
             return root.realm().canManageRealm();
         } else if (role.getContainer() instanceof ClientModel) {
             ClientModel client = (ClientModel)role.getContainer();
-            return root.clients().canManage(client);
+            return root.clients().canConfigure(client);
         }
         return false;
     }
@@ -541,7 +560,7 @@ class RolePermissions implements RolePermissionEvaluator, RolePermissionManageme
         String roleResourceName = getRoleResourceName(role);
         Resource resource = authz.getStoreFactory().getResourceStore().findByName(roleResourceName, server.getId());
         if (resource == null) {
-            resource = authz.getStoreFactory().getResourceStore().create(roleResourceName, server, server.getClientId());
+            resource = authz.getStoreFactory().getResourceStore().create(roleResourceName, server, server.getId());
             Set<Scope> scopeset = new HashSet<>();
             scopeset.add(mapClientScope);
             scopeset.add(mapCompositeScope);

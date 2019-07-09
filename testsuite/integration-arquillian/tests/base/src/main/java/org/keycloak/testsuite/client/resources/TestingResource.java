@@ -18,14 +18,13 @@
 package org.keycloak.testsuite.client.resources;
 
 import org.jboss.resteasy.annotations.cache.NoCache;
-import org.keycloak.common.util.MultivaluedHashMap;
 import org.keycloak.representations.idm.AdminEventRepresentation;
 import org.keycloak.representations.idm.AuthenticationFlowRepresentation;
 import org.keycloak.representations.idm.EventRepresentation;
 import org.keycloak.representations.idm.UserRepresentation;
 import org.keycloak.testsuite.components.TestProvider;
 import org.keycloak.testsuite.rest.representation.AuthenticatorState;
-import org.keycloak.testsuite.rest.resource.TestCacheResource;
+import org.keycloak.utils.MediaType;
 
 import javax.ws.rs.Consumes;
 import javax.ws.rs.GET;
@@ -35,8 +34,8 @@ import javax.ws.rs.Path;
 import javax.ws.rs.PathParam;
 import javax.ws.rs.Produces;
 import javax.ws.rs.QueryParam;
-import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
+
 import java.util.List;
 import java.util.Map;
 
@@ -99,15 +98,15 @@ public interface TestingResource {
      *
      * Returns all events, or filters them based on URL query parameters listed here
      *
-     * @param realmId The realm
-     * @param types The types of events to return
-     * @param client App or oauth client name
-     * @param user User id
-     * @param dateFrom From date
-     * @param dateTo To date
-     * @param ipAddress IP address
+     * @param realmId     The realm
+     * @param types       The types of events to return
+     * @param client      App or oauth client name
+     * @param user        User id
+     * @param dateFrom    From date
+     * @param dateTo      To date
+     * @param ipAddress   IP address
      * @param firstResult Paging offset
-     * @param maxResults Paging size
+     * @param maxResults  Paging size
      * @return
      */
     @Path("query-events")
@@ -141,7 +140,7 @@ public interface TestingResource {
 
     /**
      * Get admin events
-     *
+     * <p>
      * Returns all admin events, or filters events based on URL query parameters listed here
      *
      * @param realmId
@@ -172,6 +171,11 @@ public interface TestingResource {
     @Consumes(MediaType.APPLICATION_JSON)
     void onAdminEvent(final AdminEventRepresentation rep, @QueryParam("includeRepresentation") boolean includeRepresentation);
 
+    @GET
+    @Path("/get-sso-cookie")
+    @Produces(MediaType.APPLICATION_JSON)
+    String getSSOCookieValue();
+
     @POST
     @Path("/remove-user-session")
     @Produces(MediaType.APPLICATION_JSON)
@@ -183,9 +187,9 @@ public interface TestingResource {
     void removeUserSessions(@QueryParam("realm") final String realm);
 
     @GET
-    @Path("/get-user-session")
+    @Path("/get-last-session-refresh")
     @Produces(MediaType.APPLICATION_JSON)
-    Integer getLastSessionRefresh(@QueryParam("realm") final String realm, @QueryParam("session") final String sessionId);
+    Integer getLastSessionRefresh(@QueryParam("realm") final String realm, @QueryParam("session") final String sessionId, @QueryParam("offline") boolean offline);
 
     @POST
     @Path("/remove-expired")
@@ -200,11 +204,14 @@ public interface TestingResource {
     @Path("/cache/{cache}")
     TestingCacheResource cache(@PathParam("cache") String cacheName);
 
+    @Path("/ldap/{realm}")
+    TestingLDAPResource ldap(@PathParam("realm") final String realmName);
+
     @POST
     @Path("/update-pass-through-auth-state")
     @Produces(MediaType.APPLICATION_JSON)
     AuthenticatorState updateAuthenticator(AuthenticatorState state);
-    
+
     @GET
     @Path("/valid-credentials")
     @Produces(MediaType.APPLICATION_JSON)
@@ -247,6 +254,7 @@ public interface TestingResource {
     @Produces(MediaType.APPLICATION_JSON)
     Map<String, TestProvider.DetailsRepresentation> getTestComponentDetails();
 
+
     @GET
     @Path("/identity-config")
     @Produces(MediaType.APPLICATION_JSON)
@@ -258,9 +266,59 @@ public interface TestingResource {
     void setKrb5ConfFile(@QueryParam("krb5-conf-file") String krb5ConfFile);
 
     @POST
+    @Path("/suspend-periodic-tasks")
+    @Produces(MediaType.APPLICATION_JSON)
+    Response suspendPeriodicTasks();
+
+    @POST
+    @Path("/restore-periodic-tasks")
+    @Produces(MediaType.APPLICATION_JSON)
+    Response restorePeriodicTasks();
+
+    @Path("generate-audience-client-scope")
+    @POST
+    @NoCache
+    String generateAudienceClientScope(@QueryParam("realm") final String realmName, final @QueryParam("clientId") String clientId);
+
+    @GET
+    @Path("/uncaught-error")
+    @Produces(MediaType.TEXT_HTML_UTF_8)
+    Response uncaughtError();
+
+    @GET
+    @Path("/uncaught-error")
+    Response uncaughtErrorJson();
+
+    @POST
     @Path("/run-on-server")
-    @Consumes(MediaType.TEXT_PLAIN)
-    @Produces(MediaType.TEXT_PLAIN)
+    @Consumes(MediaType.TEXT_PLAIN_UTF_8)
+    @Produces(MediaType.TEXT_PLAIN_UTF_8)
     String runOnServer(String runOnServer);
 
+    @POST
+    @Path("/run-model-test-on-server")
+    @Consumes(MediaType.TEXT_PLAIN_UTF_8)
+    @Produces(MediaType.TEXT_PLAIN_UTF_8)
+    String runModelTestOnServer(@QueryParam("testClassName") String testClassName,
+                                @QueryParam("testMethodName") String testMethodName);
+
+    @GET
+    @Path("js/keycloak.js")
+    @Produces(MediaType.TEXT_HTML_UTF_8)
+    String getJavascriptAdapter();
+
+    @GET
+    @Path("/get-javascript-testing-environment")
+    @Produces(MediaType.TEXT_HTML_UTF_8)
+    String getJavascriptTestingEnvironment();
+
+    @POST
+    @Path("/enable-feature/{feature}")
+    @Consumes(MediaType.APPLICATION_JSON)
+    Response enableFeature(@PathParam("feature") String feature);
+
+    @POST
+    @Path("/disable-feature/{feature}")
+    @Consumes(MediaType.APPLICATION_JSON)
+    Response disableFeature(@PathParam("feature") String feature);
 }

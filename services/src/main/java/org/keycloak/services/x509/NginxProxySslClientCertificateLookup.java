@@ -129,9 +129,9 @@ public class NginxProxySslClientCertificateLookup extends AbstractClientCertific
 
         // Get the client certificate
         X509Certificate clientCert = getCertificateFromHttpHeader(httpRequest, sslClientCertHttpHeader);
-        log.debugf("End user certificate found : Subject DN=[%s]  SerialNumber=[%s]", clientCert.getSubjectDN().toString(), clientCert.getSerialNumber().toString() );
         
         if (clientCert != null) {
+            log.debugf("End user certificate found : Subject DN=[%s]  SerialNumber=[%s]", clientCert.getSubjectDN().toString(), clientCert.getSerialNumber().toString() );
             
         	// Rebuilding the end user certificate chain using Keycloak Truststore
             X509Certificate[] certChain = buildChain(clientCert);
